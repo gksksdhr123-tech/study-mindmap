@@ -157,6 +157,7 @@
   #info-panel button.primary { background:var(--cyan); color:#0a1626; border-color:var(--cyan); font-weight:600; }
   #info-panel button.danger { color:#ff6b6b; }
   #ip-addimage { width:100%; margin-bottom:8px; }
+  #ip-camera-add { width:100%; margin-bottom:8px; color:var(--steel); border-color:var(--steel); }
   #ip-images { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
   #ip-images .thumb { position:relative; width:52px; height:52px; border-radius:6px; overflow:hidden; border:1px solid var(--panel-border); cursor:pointer; }
   #ip-images .thumb img { width:100%; height:100%; object-fit:cover; display:block; }
@@ -186,9 +187,28 @@
     border-radius:6px; cursor:pointer; font-size:13px; line-height:1;
   }
   #fv-close { color:#ff6b6b; }
-  #fv-body { flex:1; overflow:auto; display:flex; align-items:center; justify-content:center; background:#000; }
+  #fv-body { flex:1; overflow:auto; display:flex; align-items:center; justify-content:center; background:#000; min-height:0; }
   #fv-body img { max-width:100%; max-height:100%; object-fit:contain; }
   #fv-body embed { width:100%; height:100%; border:none; }
+
+  #fv-ocr-panel {
+    display:none; flex-direction:column; gap:6px; padding:10px 12px;
+    background:#0a1626; border-top:1px solid var(--panel-border); max-height:38%; flex-shrink:0;
+  }
+  #fv-ocr-toprow { display:flex; align-items:center; gap:8px; }
+  #fv-ocr-status { flex:1; font-family:var(--mono); font-size:10px; color:var(--text-dim); }
+  #fv-ocr-run {
+    flex-shrink:0; background:var(--steel); color:#0a1626; border:none; border-radius:6px;
+    padding:6px 10px; font-family:var(--mono); font-size:10.5px; font-weight:600; cursor:pointer;
+  }
+  #fv-ocr-text {
+    width:100%; min-height:70px; background:var(--panel); border:1px solid var(--panel-border); color:var(--text);
+    border-radius:6px; padding:8px; font-family:var(--sans); font-size:12.5px; resize:vertical;
+  }
+  #fv-ocr-append {
+    background:var(--cyan); color:#0a1626; border:none; border-radius:6px; padding:8px;
+    font-family:var(--mono); font-size:11px; font-weight:600; cursor:pointer;
+  }
 
   #modal-overlay {
     position:fixed; inset:0; z-index:20; display:none;
@@ -258,6 +278,8 @@
   <div id="ip-images"></div>
   <input type="file" id="ip-image-input" accept="image/*,application/pdf" multiple style="display:none">
   <button id="ip-addimage">+ 파일 추가 (이미지/PDF)</button>
+  <input type="file" id="ip-camera-input" accept="image/*" capture="environment" style="display:none">
+  <button id="ip-camera-add">📷 촬영해서 텍스트 인식</button>
   <div class="stat-row">연결 개념 <b id="ip-links">0</b></div>
   <div class="btn-row">
     <button id="ip-addchild">+ 하위개념</button>
@@ -280,6 +302,14 @@
     <button id="fv-close">×</button>
   </div>
   <div id="fv-body"></div>
+  <div id="fv-ocr-panel">
+    <div id="fv-ocr-toprow">
+      <span id="fv-ocr-status">텍스트 인식이 아직 실행되지 않았습니다</span>
+      <button id="fv-ocr-run">OCR 인식</button>
+    </div>
+    <textarea id="fv-ocr-text" placeholder="인식된 텍스트가 여기 표시됩니다 (수정 가능)"></textarea>
+    <button id="fv-ocr-append">↓ 요점 내용에 추가</button>
+  </div>
 </div>
 
 <div id="modal-overlay">
@@ -959,6 +989,15 @@ function renderViewerContent(){
   fvTitle.textContent = f.name || (f.type==='pdf' ? 'PDF' : '이미지');
   fvCount.textContent = viewerFiles.length>1 ? (viewerIndex+1)+' / '+viewerFiles.length : '';
   document.getElementById('fv-nav').style.display = viewerFiles.length>1 ? 'flex' : 'none';
+
+  const ocrPanel = document.getElementById('fv-ocr-panel');
+  if(f.type==='image'){
+    ocrPanel.style.display = 'flex';
+    document.getElementById('fv-ocr-text').value = f.ocrText || '';
+    document.getElementById('fv-ocr-status').textContent = f.ocrText ? '인식 완료 (수정 가능)' : '텍스트 인식이 아직 실행되지 않았습니다';
+  } else {
+    ocrPanel.style.display = 'none';
+  }
 }
 function closeViewer(){ fileViewer.style.display = 'none'; }
 document.getElementById('fv-close').addEventListener('click', closeViewer);
@@ -969,6 +1008,70 @@ document.getElementById('fv-prev').addEventListener('click', ()=>{
 document.getElementById('fv-next').addEventListener('click', ()=>{
   viewerIndex = (viewerIndex+1)%viewerFiles.length;
   renderViewerContent();
+});
+
+// ---------- OCR (Tesseract.js, 무료·가입 불필요·전부 브라우저 안에서 처리) ----------
+let tesseractLoadPromise = null;
+function loadTesseract(){
+  if(window.Tesseract) return Promise.resolve();
+  if(tesseractLoadPromise) return tesseractLoadPromise;
+  tesseractLoadPromise = new Promise((resolve, reject)=>{
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.onload = resolve;
+    s.onerror = ()=>reject(new Error('Tesseract.js 로드 실패 (인터넷 연결 확인 필요 — 최초 1회는 온라인이어야 함)'));
+    document.head.appendChild(s);
+  });
+  return tesseractLoadPromise;
+}
+async function runOCR(dataUrl, onProgress){
+  await loadTesseract();
+  const { data: { text } } = await Tesseract.recognize(dataUrl, 'kor+eng', {
+    logger: m => { if(onProgress && m.status==='recognizing text') onProgress(m.progress); }
+  });
+  return text.trim();
+}
+// 기출문제 사진에서 흔히 보이는 "N회", "문제 N", "N번" 패턴을 느슨하게 추출 (참고용 힌트)
+function extractExamMeta(text){
+  const roundMatch = text.match(/(\d+)\s*회/);
+  const numberMatch = text.match(/문제\s*(\d+)|(\d+)\s*번/);
+  return {
+    examRound: roundMatch ? roundMatch[1] : null,
+    examNumber: numberMatch ? (numberMatch[1]||numberMatch[2]) : null,
+  };
+}
+async function runOcrOnFile(f){
+  const statusEl = document.getElementById('fv-ocr-status');
+  const textEl = document.getElementById('fv-ocr-text');
+  statusEl.textContent = '텍스트 인식 준비 중... (처음 실행 시 언어 데이터 다운로드로 더 걸릴 수 있어요)';
+  try{
+    const text = await runOCR(f.dataUrl, progress=>{
+      statusEl.textContent = `텍스트 인식 중... ${Math.round(progress*100)}%`;
+    });
+    f.ocrText = text;
+    textEl.value = text;
+    const meta = extractExamMeta(text);
+    const metaBits = [];
+    if(meta.examRound) metaBits.push(meta.examRound+'회');
+    if(meta.examNumber) metaBits.push(meta.examNumber+'번');
+    statusEl.textContent = '인식 완료' + (metaBits.length ? ' (감지됨: '+metaBits.join(' · ')+')' : '');
+    saveData();
+  }catch(e){
+    statusEl.textContent = 'OCR 실패: ' + e.message;
+  }
+}
+document.getElementById('fv-ocr-run').addEventListener('click', ()=>{
+  const f = viewerFiles[viewerIndex];
+  if(f && f.type==='image') runOcrOnFile(f);
+});
+document.getElementById('fv-ocr-append').addEventListener('click', ()=>{
+  const text = document.getElementById('fv-ocr-text').value.trim();
+  if(!text) return;
+  const n = nodes.find(x=>x.id===selectedId);
+  if(!n) return;
+  ipContent.value = (ipContent.value ? ipContent.value+'\n\n' : '') + text;
+  n.content = ipContent.value;
+  saveData();
 });
 
 // 뷰어 창 드래그 이동 (헤더를 잡고 이동)
@@ -1062,6 +1165,18 @@ document.getElementById('ip-image-input').addEventListener('change', async e=>{
   if(!n) return;
   await attachFiles(n, Array.from(e.target.files));
   e.target.value = '';
+});
+
+document.getElementById('ip-camera-add').addEventListener('click', ()=>document.getElementById('ip-camera-input').click());
+document.getElementById('ip-camera-input').addEventListener('change', async e=>{
+  const n = nodes.find(x=>x.id===selectedId);
+  const files = Array.from(e.target.files);
+  e.target.value = '';
+  if(!n || files.length===0) return;
+  await attachFiles(n, files);
+  const newFile = n.files[n.files.length-1];
+  openViewer(n.files, n.files.length-1);
+  await runOcrOnFile(newFile);
 });
 async function attachFiles(n, fileList){
   n.files = n.files || [];
