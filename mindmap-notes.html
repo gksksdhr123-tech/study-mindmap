@@ -214,6 +214,32 @@
     position:fixed; inset:0; z-index:20; display:none;
     background:rgba(5,10,18,0.75); align-items:center; justify-content:center;
   }
+
+  #crop-overlay {
+    position:fixed; inset:0; z-index:28; display:none;
+    background:rgba(5,10,18,0.92); align-items:center; justify-content:center; padding:16px;
+  }
+  #crop-box {
+    width:min(600px, 94vw); background:var(--panel); border:1px solid var(--panel-border);
+    border-radius:12px; padding:16px; display:flex; flex-direction:column; align-items:center; gap:10px;
+  }
+  #crop-box h3 { align-self:flex-start; font-family:var(--mono); font-size:12px; color:var(--cyan); letter-spacing:.04em; }
+  #crop-hint { align-self:flex-start; font-family:var(--mono); font-size:10px; color:var(--text-dim); }
+  #crop-canvas-wrap {
+    position:relative; display:inline-block; max-width:100%; border:1px solid var(--panel-border);
+    border-radius:8px; overflow:hidden; touch-action:none; line-height:0;
+  }
+  #crop-img { display:block; max-width:100%; max-height:58vh; width:auto; height:auto; user-select:none; -webkit-user-drag:none; }
+  #crop-selection {
+    position:absolute; display:none; border:2px solid var(--steel);
+    background:rgba(255,149,82,0.18); pointer-events:none;
+  }
+  #crop-box .btn-row { width:100%; display:flex; gap:8px; }
+  #crop-box .btn-row button {
+    flex:1; padding:10px; border-radius:8px; border:1px solid var(--panel-border);
+    background:#0a1626; color:var(--text-dim); font-family:var(--mono); font-size:12px; cursor:pointer;
+  }
+  #crop-box .btn-row button.primary { background:var(--steel); color:#0a1626; border-color:var(--steel); font-weight:600; }
   #modal {
     width:min(340px, 88vw); background:var(--panel); border:1px solid var(--panel-border);
     border-radius:12px; padding:18px;
@@ -290,6 +316,21 @@
 </div>
 
 <button id="addBtn">+</button>
+
+<div id="crop-overlay">
+  <div id="crop-box">
+    <h3>인식할 영역 선택</h3>
+    <div id="crop-hint">드래그해서 텍스트 부분만 선택하세요 (선택 안 하면 사진 전체를 인식합니다)</div>
+    <div id="crop-canvas-wrap">
+      <img id="crop-img">
+      <div id="crop-selection"></div>
+    </div>
+    <div class="btn-row">
+      <button id="crop-cancel">취소</button>
+      <button id="crop-confirm" class="primary">이 영역 인식</button>
+    </div>
+  </div>
+</div>
 
 <div id="fileViewer">
   <div id="fv-header">
@@ -1040,12 +1081,12 @@ function extractExamMeta(text){
     examNumber: numberMatch ? (numberMatch[1]||numberMatch[2]) : null,
   };
 }
-async function runOcrOnFile(f){
+async function runOcrOnFile(f, overrideDataUrl){
   const statusEl = document.getElementById('fv-ocr-status');
   const textEl = document.getElementById('fv-ocr-text');
   statusEl.textContent = '텍스트 인식 준비 중... (처음 실행 시 언어 데이터 다운로드로 더 걸릴 수 있어요)';
   try{
-    const text = await runOCR(f.dataUrl, progress=>{
+    const text = await runOCR(overrideDataUrl || f.dataUrl, progress=>{
       statusEl.textContent = `텍스트 인식 중... ${Math.round(progress*100)}%`;
     });
     f.ocrText = text;
@@ -1062,7 +1103,74 @@ async function runOcrOnFile(f){
 }
 document.getElementById('fv-ocr-run').addEventListener('click', ()=>{
   const f = viewerFiles[viewerIndex];
-  if(f && f.type==='image') runOcrOnFile(f);
+  if(f && f.type==='image') openCropModal(f);
+});
+
+// ---------- 크롭(인식 영역 선택) ----------
+let cropTargetFile = null;
+let cropDragging = false, cropStartX=0, cropStartY=0, cropRect=null;
+const cropWrap = document.getElementById('crop-canvas-wrap');
+const cropImg = document.getElementById('crop-img');
+const cropSel = document.getElementById('crop-selection');
+
+function openCropModal(file){
+  cropTargetFile = file;
+  cropRect = null;
+  cropImg.src = file.dataUrl;
+  cropSel.style.display = 'none';
+  document.getElementById('crop-overlay').style.display = 'flex';
+}
+function closeCropModal(){
+  document.getElementById('crop-overlay').style.display = 'none';
+  cropTargetFile = null;
+}
+function cropDown(x,y){
+  const rect = cropWrap.getBoundingClientRect();
+  cropStartX = Math.max(0, Math.min(rect.width, x-rect.left));
+  cropStartY = Math.max(0, Math.min(rect.height, y-rect.top));
+  cropDragging = true;
+  cropSel.style.display = 'block';
+  cropSel.style.left = cropStartX+'px'; cropSel.style.top = cropStartY+'px';
+  cropSel.style.width = '0px'; cropSel.style.height = '0px';
+}
+function cropMove(x,y){
+  if(!cropDragging) return;
+  const rect = cropWrap.getBoundingClientRect();
+  const cx = Math.max(0, Math.min(rect.width, x-rect.left));
+  const cy = Math.max(0, Math.min(rect.height, y-rect.top));
+  const left = Math.min(cropStartX, cx), top = Math.min(cropStartY, cy);
+  const w = Math.abs(cx-cropStartX), h = Math.abs(cy-cropStartY);
+  cropSel.style.left = left+'px'; cropSel.style.top = top+'px';
+  cropSel.style.width = w+'px'; cropSel.style.height = h+'px';
+  cropRect = {x:left, y:top, w, h};
+}
+function cropUp(){ cropDragging = false; }
+cropWrap.addEventListener('mousedown', e=>cropDown(e.clientX, e.clientY));
+window.addEventListener('mousemove', e=>{ if(cropDragging) cropMove(e.clientX, e.clientY); });
+window.addEventListener('mouseup', cropUp);
+cropWrap.addEventListener('touchstart', e=>{ const t=e.touches[0]; cropDown(t.clientX,t.clientY); }, {passive:true});
+cropWrap.addEventListener('touchmove', e=>{ const t=e.touches[0]; cropMove(t.clientX,t.clientY); }, {passive:true});
+cropWrap.addEventListener('touchend', cropUp);
+
+document.getElementById('crop-cancel').addEventListener('click', closeCropModal);
+document.getElementById('crop-confirm').addEventListener('click', async ()=>{
+  const file = cropTargetFile;
+  if(!file) return;
+  const scaleX = cropImg.naturalWidth / cropImg.clientWidth;
+  const scaleY = cropImg.naturalHeight / cropImg.clientHeight;
+  const useFull = !cropRect || cropRect.w < 10 || cropRect.h < 10;
+  const sx = useFull ? 0 : cropRect.x*scaleX;
+  const sy = useFull ? 0 : cropRect.y*scaleY;
+  const sw = useFull ? cropImg.naturalWidth : cropRect.w*scaleX;
+  const sh = useFull ? cropImg.naturalHeight : cropRect.h*scaleY;
+  const canvas = document.createElement('canvas');
+  canvas.width = sw; canvas.height = sh;
+  canvas.getContext('2d').drawImage(cropImg, sx, sy, sw, sh, 0, 0, sw, sh);
+  const croppedDataUrl = canvas.toDataURL('image/png');
+  closeCropModal();
+  const n = nodes.find(x=>x.id===selectedId);
+  if(n){ openViewer(n.files, n.files.indexOf(file)); }
+  await runOcrOnFile(file, croppedDataUrl);
 });
 document.getElementById('fv-ocr-append').addEventListener('click', ()=>{
   const text = document.getElementById('fv-ocr-text').value.trim();
@@ -1175,8 +1283,7 @@ document.getElementById('ip-camera-input').addEventListener('change', async e=>{
   if(!n || files.length===0) return;
   await attachFiles(n, files);
   const newFile = n.files[n.files.length-1];
-  openViewer(n.files, n.files.length-1);
-  await runOcrOnFile(newFile);
+  openCropModal(newFile);
 });
 async function attachFiles(n, fileList){
   n.files = n.files || [];
