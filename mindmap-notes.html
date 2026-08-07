@@ -209,6 +209,55 @@
     background:var(--cyan); color:#0a1626; border:none; border-radius:6px; padding:8px;
     font-family:var(--mono); font-size:11px; font-weight:600; cursor:pointer;
   }
+  .fv-ocr-meta-row { display:flex; gap:6px; }
+  .fv-ocr-meta-row input {
+    flex:1; min-width:0; background:var(--panel); border:1px solid var(--panel-border); color:var(--text);
+    border-radius:6px; padding:7px 8px; font-family:var(--sans); font-size:12px;
+  }
+  .fv-ocr-btn-row { display:flex; gap:6px; }
+  .fv-ocr-btn-row button { flex:1; }
+  #fv-ocr-save-problem {
+    background:var(--steel); color:#0a1626; border:none; border-radius:6px; padding:8px;
+    font-family:var(--mono); font-size:11px; font-weight:600; cursor:pointer;
+  }
+
+  #ip-problems { margin-bottom:8px; }
+  .problem-header { font-family:var(--mono); font-size:10px; color:var(--text-dim); margin-bottom:6px; letter-spacing:.04em; }
+  .problem-row {
+    display:flex; align-items:center; gap:8px; padding:8px; border-radius:6px; margin-bottom:5px;
+    background:#0a1626; border:1px solid var(--panel-border); cursor:pointer;
+  }
+  .problem-row-body { flex:1; min-width:0; }
+  .problem-meta { font-family:var(--mono); font-size:9.5px; color:var(--steel); margin-bottom:2px; }
+  .problem-snippet { font-size:11.5px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .problem-del { flex-shrink:0; background:none; border:none; color:#ff6b6b; font-size:14px; cursor:pointer; padding:2px 4px; }
+
+  #problem-overlay {
+    position:fixed; inset:0; z-index:26; display:none;
+    background:rgba(5,10,18,0.8); align-items:center; justify-content:center; padding:16px;
+  }
+  #problem-box {
+    width:min(420px, 94vw); max-height:88vh; overflow-y:auto;
+    background:var(--panel); border:1px solid var(--panel-border); border-radius:12px; padding:16px;
+    display:flex; flex-direction:column; gap:10px;
+  }
+  #problem-box-header { display:flex; align-items:center; justify-content:space-between; }
+  #problem-box-title { font-family:var(--mono); font-size:12px; color:var(--steel); }
+  #problem-box-close { background:none; border:1px solid var(--panel-border); color:var(--text-dim); width:26px; height:26px; border-radius:6px; cursor:pointer; }
+  #problem-box-img { width:100%; border-radius:8px; cursor:pointer; display:none; }
+  #problem-box-meta-row { display:flex; gap:6px; }
+  #problem-box-meta-row input {
+    flex:1; background:#0a1626; border:1px solid var(--panel-border); color:var(--text);
+    border-radius:6px; padding:7px 8px; font-family:var(--sans); font-size:12px;
+  }
+  #problem-box-text {
+    width:100%; min-height:100px; background:#0a1626; border:1px solid var(--panel-border); color:var(--text);
+    border-radius:6px; padding:8px; font-family:var(--sans); font-size:12.5px; resize:vertical;
+  }
+  #problem-box .btn-row { display:flex; gap:8px; }
+  #problem-box .btn-row button { flex:1; padding:9px; border-radius:8px; border:1px solid var(--panel-border); background:#0a1626; color:var(--text-dim); font-family:var(--mono); font-size:11.5px; cursor:pointer; }
+  #problem-box .btn-row button.primary { background:var(--cyan); color:#0a1626; border-color:var(--cyan); font-weight:600; }
+  #problem-box .btn-row button.danger { color:#ff6b6b; }
 
   #modal-overlay {
     position:fixed; inset:0; z-index:20; display:none;
@@ -306,6 +355,7 @@
   <button id="ip-addimage">+ 파일 추가 (이미지/PDF)</button>
   <input type="file" id="ip-camera-input" accept="image/*" capture="environment" style="display:none">
   <button id="ip-camera-add">📷 촬영해서 텍스트 인식</button>
+  <div id="ip-problems"></div>
   <div class="stat-row">연결 개념 <b id="ip-links">0</b></div>
   <div class="btn-row">
     <button id="ip-addchild">+ 하위개념</button>
@@ -349,7 +399,33 @@
       <button id="fv-ocr-run">OCR 인식</button>
     </div>
     <textarea id="fv-ocr-text" placeholder="인식된 텍스트가 여기 표시됩니다 (수정 가능)"></textarea>
-    <button id="fv-ocr-append">↓ 요점 내용에 추가</button>
+    <div class="fv-ocr-meta-row">
+      <input id="fv-ocr-round" placeholder="회차 (예: 125)">
+      <input id="fv-ocr-number" placeholder="문제번호 (예: 3)">
+    </div>
+    <div class="fv-ocr-btn-row">
+      <button id="fv-ocr-append">↓ 요점 내용에 추가</button>
+      <button id="fv-ocr-save-problem">📇 문제 카드로 저장</button>
+    </div>
+  </div>
+</div>
+
+<div id="problem-overlay">
+  <div id="problem-box">
+    <div id="problem-box-header">
+      <span id="problem-box-title">문제 카드</span>
+      <button id="problem-box-close">×</button>
+    </div>
+    <img id="problem-box-img">
+    <div id="problem-box-meta-row">
+      <input id="problem-box-round" placeholder="회차">
+      <input id="problem-box-number" placeholder="문제번호">
+    </div>
+    <textarea id="problem-box-text"></textarea>
+    <div class="btn-row">
+      <button id="problem-box-save" class="primary">저장</button>
+      <button id="problem-box-delete" class="danger">삭제</button>
+    </div>
   </div>
 </div>
 
@@ -383,6 +459,7 @@ const PALETTE = [0x6fd6ff, 0xff9552, 0x8ef0a0, 0xd9a4ff, 0xffe27a, 0xff7a90, 0x7
 let categories = {};   // name -> colorHex(number)
 let nodes = [];        // {id,label,category,level,content,files[],fixed,x,y,z,vx,vy,vz}
 let links = [];        // {source, target} node object refs
+let problems = [];     // {id,examRound,examNumber,ocrText,imageDataUrl,createdAt,nodeIds[]}
 let neighborMap = {};
 let selectedId = null;
 let linkSourceId = null;
@@ -479,6 +556,7 @@ function applyLoadedData(data){
     return node;
   });
   links = (data.links||[]).map(([s,t])=>({source:byId[s], target:byId[t]})).filter(l=>l.source && l.target);
+  problems = (data.problems||[]).map(p=>({...p, nodeIds:p.nodeIds||[]}));
 }
 async function loadData(){
   try{
@@ -519,6 +597,7 @@ async function saveData(){
     categories,
     nodes: nodes.map(n=>({id:n.id, label:n.label, category:n.category, level:n.level, content:n.content||'', files:n.files||[], fixed:!!n.fixed, x:n.x, y:n.y, z:n.z})),
     links: links.map(l=>[l.source.id, l.target.id]),
+    problems,
   };
   try{
     await idbPutUniverse(data);
@@ -1036,6 +1115,9 @@ function renderViewerContent(){
     ocrPanel.style.display = 'flex';
     document.getElementById('fv-ocr-text').value = f.ocrText || '';
     document.getElementById('fv-ocr-status').textContent = f.ocrText ? '인식 완료 (수정 가능)' : '텍스트 인식이 아직 실행되지 않았습니다';
+    const meta = f.ocrText ? extractExamMeta(f.ocrText) : {examRound:null, examNumber:null};
+    document.getElementById('fv-ocr-round').value = meta.examRound || '';
+    document.getElementById('fv-ocr-number').value = meta.examNumber || '';
   } else {
     ocrPanel.style.display = 'none';
   }
@@ -1092,6 +1174,8 @@ async function runOcrOnFile(f, overrideDataUrl){
     f.ocrText = text;
     textEl.value = text;
     const meta = extractExamMeta(text);
+    document.getElementById('fv-ocr-round').value = meta.examRound || '';
+    document.getElementById('fv-ocr-number').value = meta.examNumber || '';
     const metaBits = [];
     if(meta.examRound) metaBits.push(meta.examRound+'회');
     if(meta.examNumber) metaBits.push(meta.examNumber+'번');
@@ -1182,6 +1266,105 @@ document.getElementById('fv-ocr-append').addEventListener('click', ()=>{
   saveData();
 });
 
+// ---------- 문제 카드 (OCR 텍스트 + 회차/번호 + 원본 이미지를 노드에 구조화해서 연결) ----------
+document.getElementById('fv-ocr-save-problem').addEventListener('click', ()=>{
+  const n = nodes.find(x=>x.id===selectedId);
+  if(!n) return;
+  const text = document.getElementById('fv-ocr-text').value.trim();
+  if(!text) return;
+  const f = viewerFiles[viewerIndex];
+  const problem = {
+    id: 'p_'+Date.now()+'_'+Math.floor(Math.random()*1000),
+    examRound: document.getElementById('fv-ocr-round').value.trim(),
+    examNumber: document.getElementById('fv-ocr-number').value.trim(),
+    ocrText: text,
+    imageDataUrl: f ? f.dataUrl : null,
+    createdAt: Date.now(),
+    nodeIds: [n.id],
+  };
+  problems.push(problem);
+  saveData();
+  renderProblems(n);
+  document.getElementById('fv-ocr-status').textContent = '문제 카드로 저장됨';
+});
+
+function renderProblems(n){
+  const el = document.getElementById('ip-problems');
+  el.innerHTML = '';
+  const linked = problems.filter(p=>p.nodeIds.includes(n.id));
+  if(linked.length===0) return;
+  const header = document.createElement('div');
+  header.className = 'problem-header';
+  header.textContent = '연동 문제 (' + linked.length + ')';
+  el.appendChild(header);
+  linked.forEach(p=>{
+    const row = document.createElement('div');
+    row.className = 'problem-row';
+    const body = document.createElement('div');
+    body.className = 'problem-row-body';
+    const meta = document.createElement('div');
+    meta.className = 'problem-meta';
+    const metaBits = [];
+    if(p.examRound) metaBits.push(p.examRound+'회');
+    if(p.examNumber) metaBits.push(p.examNumber+'번');
+    meta.textContent = metaBits.length ? metaBits.join(' · ') : '문제';
+    const snippet = document.createElement('div');
+    snippet.className = 'problem-snippet';
+    snippet.textContent = (p.ocrText||'').replace(/\n/g,' ');
+    body.appendChild(meta); body.appendChild(snippet);
+    row.appendChild(body);
+    row.addEventListener('click', ()=>openProblemDetail(p));
+    const delBtn = document.createElement('button');
+    delBtn.className = 'problem-del';
+    delBtn.textContent = '×';
+    delBtn.addEventListener('click', ev=>{ ev.stopPropagation(); removeProblem(p.id); });
+    row.appendChild(delBtn);
+    el.appendChild(row);
+  });
+}
+
+let currentProblemId = null;
+function openProblemDetail(p){
+  currentProblemId = p.id;
+  document.getElementById('problem-box-title').textContent = '문제 카드';
+  const img = document.getElementById('problem-box-img');
+  if(p.imageDataUrl){ img.src = p.imageDataUrl; img.style.display = 'block'; }
+  else { img.style.display = 'none'; }
+  document.getElementById('problem-box-round').value = p.examRound || '';
+  document.getElementById('problem-box-number').value = p.examNumber || '';
+  document.getElementById('problem-box-text').value = p.ocrText || '';
+  document.getElementById('problem-overlay').style.display = 'flex';
+}
+function closeProblemDetail(){
+  document.getElementById('problem-overlay').style.display = 'none';
+  currentProblemId = null;
+}
+document.getElementById('problem-box-close').addEventListener('click', closeProblemDetail);
+document.getElementById('problem-overlay').addEventListener('click', e=>{ if(e.target.id==='problem-overlay') closeProblemDetail(); });
+document.getElementById('problem-box-img').addEventListener('click', ()=>{
+  const p = problems.find(x=>x.id===currentProblemId);
+  if(p && p.imageDataUrl) openViewer([{type:'image', name:'문제 이미지', dataUrl:p.imageDataUrl}], 0);
+});
+document.getElementById('problem-box-save').addEventListener('click', ()=>{
+  const p = problems.find(x=>x.id===currentProblemId);
+  if(!p) return;
+  p.examRound = document.getElementById('problem-box-round').value.trim();
+  p.examNumber = document.getElementById('problem-box-number').value.trim();
+  p.ocrText = document.getElementById('problem-box-text').value.trim();
+  saveData();
+  const n = nodes.find(x=>x.id===selectedId);
+  if(n) renderProblems(n);
+  closeProblemDetail();
+});
+document.getElementById('problem-box-delete').addEventListener('click', ()=>{
+  if(!confirm('이 문제 카드를 삭제할까요?')) return;
+  problems = problems.filter(p=>p.id!==currentProblemId);
+  saveData();
+  const n = nodes.find(x=>x.id===selectedId);
+  if(n) renderProblems(n);
+  closeProblemDetail();
+});
+
 // 뷰어 창 드래그 이동 (헤더를 잡고 이동)
 (function(){
   const header = document.getElementById('fv-header');
@@ -1236,6 +1419,7 @@ function selectNode(id, silent){
     ipContent.value = n.content || '';
     ipLinks.textContent = neighbors.size;
     renderImages(n);
+    renderProblems(n);
     infoPanel.classList.add('show');
     if(!silent && n.files && n.files.length) openViewer(n.files, 0);
     else if(!silent) closeViewer();
@@ -1258,6 +1442,7 @@ document.getElementById('ip-delete').addEventListener('click', ()=>{
   if(!confirm('이 개념을 삭제할까요? 연결된 관계선도 함께 삭제됩니다.')) return;
   nodes = nodes.filter(n=>n.id!==selectedId);
   links = links.filter(l=>l.source.id!==selectedId && l.target.id!==selectedId);
+  problems.forEach(p=>{ p.nodeIds = p.nodeIds.filter(id=>id!==selectedId); });
   selectedId = null;
   resettle(60);
   saveData();
