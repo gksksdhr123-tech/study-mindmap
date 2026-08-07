@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>영상 플레이어 프로토타입</title>
+<style>
+  :root{
+    --bg: #0a1626;
+    --panel: #0f1e33;
+    --panel-border: #1f3352;
+    --cyan: #6fd6ff;
+    --steel: #ff9552;
+    --text: #dce7f2;
+    --text-dim: #7c93ab;
+    --mono: 'IBM Plex Mono', 'Menlo', monospace;
+    --sans: 'Pretendard', -apple-system, 'Noto Sans KR', sans-serif;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); font-family:var(--sans); }
+
+  #stage { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; }
+
+  #picker {
+    z-index:20; text-align:center; color:var(--text-dim); font-family:var(--mono); font-size:13px;
+  }
+  #picker button {
+    margin-top:16px; padding:12px 22px; background:var(--panel); border:1px solid var(--panel-border);
+    color:var(--cyan); font-family:var(--mono); font-size:13px; border-radius:8px; cursor:pointer;
+  }
+
+  video { position:fixed; inset:0; width:100%; height:100%; object-fit:contain; background:#000; display:none; }
+
+  /* 탭 감지용 투명 레이어 (재생/일시정지 토글, 컨트롤 표시) */
+  #tapLayer { position:fixed; inset:0; z-index:5; display:none; }
+
+  #controls {
+    position:fixed; left:0; right:0; bottom:0; z-index:10;
+    padding:10px 14px 16px; background:linear-gradient(to top, rgba(10,22,38,0.92), transparent);
+    display:none; flex-direction:column; gap:10px;
+    transition:opacity .2s ease;
+  }
+  #controls.hidden-ui { opacity:0; pointer-events:none; }
+
+  #seekRow { display:flex; align-items:center; gap:10px; font-family:var(--mono); font-size:11px; color:var(--text-dim); }
+  #seekBar { flex:1; height:4px; -webkit-appearance:none; appearance:none; background:var(--panel-border); border-radius:2px; outline:none; }
+  #seekBar::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:var(--cyan); cursor:pointer; }
+
+  #btnRow { display:flex; align-items:center; justify-content:center; gap:22px; }
+  #btnRow button {
+    background:var(--panel); border:1px solid var(--panel-border); color:var(--text);
+    width:48px; height:48px; border-radius:50%; font-size:16px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #btnRow button.wide { width:auto; padding:0 16px; border-radius:24px; font-family:var(--mono); font-size:12px; color:var(--cyan); }
+  #btnRow #playBtn { width:58px; height:58px; font-size:20px; color:var(--steel); border-color:var(--steel); }
+
+  #topRow {
+    position:fixed; top:0; left:0; right:0; z-index:10; padding:14px;
+    display:none; justify-content:space-between; align-items:center;
+    background:linear-gradient(to bottom, rgba(10,22,38,0.9), transparent);
+    transition:opacity .2s ease;
+  }
+  #topRow.hidden-ui { opacity:0; pointer-events:none; }
+  #fileName { font-family:var(--mono); font-size:11px; color:var(--text-dim); max-width:60vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #lockBtn {
+    background:var(--panel); border:1px solid var(--panel-border); color:var(--text-dim);
+    width:38px; height:38px; border-radius:50%; font-size:15px; cursor:pointer;
+  }
+
+  #unlockBtn {
+    position:fixed; bottom:20px; right:20px; z-index:15; display:none;
+    width:44px; height:44px; border-radius:50%; background:var(--panel); border:1px solid var(--panel-border);
+    color:var(--text-dim); font-size:15px;
+  }
+
+  #watchLog {
+    position:fixed; top:14px; left:14px; z-index:10; font-family:var(--mono); font-size:9.5px; color:var(--text-dim);
+    background:var(--panel); border:1px solid var(--panel-border); padding:6px 9px; border-radius:6px;
+    display:none; max-width:150px; line-height:1.5;
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <div id="picker">
+    로컬 영상 파일을 선택하세요<br>
+    <button id="pickBtn">영상 선택</button>
+    <input type="file" id="fileInput" accept="video/*" style="display:none">
+  </div>
+</div>
+
+<video id="video" playsinline></video>
+<div id="tapLayer"></div>
+
+<div id="watchLog"></div>
+
+<div id="topRow">
+  <div id="fileName"></div>
+  <button id="lockBtn">🔓</button>
+</div>
+
+<button id="unlockBtn">🔒</button>
+
+<div id="controls">
+  <div id="seekRow">
+    <span id="curTime">00:00</span>
+    <input type="range" id="seekBar" min="0" max="100" value="0" step="0.1">
+    <span id="durTime">00:00</span>
+  </div>
+  <div id="btnRow">
+    <button id="speedBtn" class="wide">1.0x</button>
+    <button id="backBtn">-10</button>
+    <button id="playBtn">▶</button>
+    <button id="fwdBtn">+10</button>
+    <button id="lockBtn2" class="wide">잠금</button>
+  </div>
+</div>
+
+<script>
+const video = document.getElementById('video');
+const stage = document.getElementById('stage');
+const picker = document.getElementById('picker');
+const fileInput = document.getElementById('fileInput');
+const pickBtn = document.getElementById('pickBtn');
+const tapLayer = document.getElementById('tapLayer');
+const controls = document.getElementById('controls');
+const topRow = document.getElementById('topRow');
+const seekBar = document.getElementById('seekBar');
+const curTime = document.getElementById('curTime');
+const durTime = document.getElementById('durTime');
+const playBtn = document.getElementById('playBtn');
+const backBtn = document.getElementById('backBtn');
+const fwdBtn = document.getElementById('fwdBtn');
+const speedBtn = document.getElementById('speedBtn');
+const lockBtn = document.getElementById('lockBtn');
+const lockBtn2 = document.getElementById('lockBtn2');
+const unlockBtn = document.getElementById('unlockBtn');
+const fileNameEl = document.getElementById('fileName');
+const watchLog = document.getElementById('watchLog');
+
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+let speedIdx = 2;
+let isLocked = false;
+let uiVisible = true;
+let uiTimer = null;
+let seeking = false;
+let currentFileKey = null;
+
+function fmt(sec){
+  if(!isFinite(sec)) return "00:00";
+  const m = Math.floor(sec/60), s = Math.floor(sec%60);
+  return String(m).padStart(2,'0')+":"+String(s).padStart(2,'0');
+}
+
+// ---------- 파일 선택 (로컬 재생 검증용) ----------
+pickBtn.addEventListener('click', ()=>fileInput.click());
+fileInput.addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const url = URL.createObjectURL(file);
+  video.src = url;
+  video.style.display = 'block';
+  tapLayer.style.display = 'block';
+  topRow.style.display = 'flex';
+  watchLog.style.display = 'block';
+  picker.style.display = 'none';
+  fileNameEl.textContent = file.name;
+  currentFileKey = 'watch_' + file.name + '_' + file.size;
+
+  // 로컬 저장된 시청 기록(마지막 위치) 복원 — 실제 앱에선 IndexedDB에 Video/WatchHistory 엔티티로 저장
+  const saved = localStorage.getItem(currentFileKey);
+  if(saved){
+    const data = JSON.parse(saved);
+    video.addEventListener('loadedmetadata', ()=>{ video.currentTime = data.lastPos || 0; }, {once:true});
+    updateWatchLog(data);
+  }
+  video.play();
+});
+
+// ---------- 재생/일시정지 (탭해도 위치 안 튕김 확인 포인트) ----------
+function togglePlay(){
+  if(video.paused) video.play(); else video.pause();
+}
+playBtn.addEventListener('click', togglePlay);
+tapLayer.addEventListener('click', e=>{
+  if(isLocked) return;
+  showUI();
+  togglePlay();
+});
+
+video.addEventListener('play', ()=> playBtn.textContent='⏸');
+video.addEventListener('pause', ()=> playBtn.textContent='▶');
+
+// ---------- 건너뛰기 ----------
+backBtn.addEventListener('click', e=>{ e.stopPropagation(); video.currentTime = Math.max(0, video.currentTime-10); showUI(); });
+fwdBtn.addEventListener('click', e=>{ e.stopPropagation(); video.currentTime = Math.min(video.duration, video.currentTime+10); showUI(); });
+
+// ---------- 배속 ----------
+speedBtn.addEventListener('click', e=>{
+  e.stopPropagation();
+  speedIdx = (speedIdx+1) % SPEEDS.length;
+  video.playbackRate = SPEEDS[speedIdx];
+  speedBtn.textContent = SPEEDS[speedIdx].toFixed(2).replace(/\.?0+$/,'') + 'x';
+  showUI();
+});
+
+// ---------- 시크바 ----------
+video.addEventListener('timeupdate', ()=>{
+  if(!seeking && video.duration){
+    seekBar.value = (video.currentTime/video.duration)*100;
+    curTime.textContent = fmt(video.currentTime);
+    durTime.textContent = fmt(video.duration);
+  }
+  // 주기적으로 시청 위치 로컬 저장 (실제 앱에선 IndexedDB WatchHistory)
+  if(currentFileKey && Math.floor(video.currentTime)%3===0){
+    const data = { lastPos: video.currentTime, duration: video.duration, updatedAt: Date.now() };
+    localStorage.setItem(currentFileKey, JSON.stringify(data));
+    updateWatchLog(data);
+  }
+});
+seekBar.addEventListener('input', ()=>{
+  seeking = true;
+  const t = (seekBar.value/100)*video.duration;
+  curTime.textContent = fmt(t);
+});
+seekBar.addEventListener('change', ()=>{
+  video.currentTime = (seekBar.value/100)*video.duration;
+  seeking = false;
+});
+
+function updateWatchLog(data){
+  const pct = data.duration ? Math.round((data.lastPos/data.duration)*100) : 0;
+  watchLog.innerHTML = `시청기록(로컬)<br>위치: ${fmt(data.lastPos)} (${pct}%)`;
+}
+
+// ---------- 잠금 ----------
+function setLocked(v){
+  isLocked = v;
+  if(v){
+    controls.style.display = 'none';
+    topRow.style.display = 'none';
+    unlockBtn.style.display = 'block';
+  } else {
+    controls.style.display = 'flex';
+    topRow.style.display = 'flex';
+    unlockBtn.style.display = 'none';
+    showUI();
+  }
+}
+lockBtn.addEventListener('click', e=>{ e.stopPropagation(); setLocked(true); });
+lockBtn2.addEventListener('click', e=>{ e.stopPropagation(); setLocked(true); });
+unlockBtn.addEventListener('click', e=>{ e.stopPropagation(); setLocked(false); });
+
+// ---------- UI 자동 숨김 ----------
+function showUI(){
+  uiVisible = true;
+  controls.classList.remove('hidden-ui');
+  topRow.classList.remove('hidden-ui');
+  clearTimeout(uiTimer);
+  uiTimer = setTimeout(()=>{
+    if(!video.paused){
+      controls.classList.add('hidden-ui');
+      topRow.classList.add('hidden-ui');
+    }
+  }, 3000);
+}
+video.addEventListener('play', showUI);
+showUI();
+controls.style.display = 'none';
+</script>
+</body>
+</html>

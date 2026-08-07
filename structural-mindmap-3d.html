@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>구조기술사 개념 그래프</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  :root{
+    --bg: #0a1626;
+    --bg-grid: #12203a;
+    --panel: #0f1e33;
+    --panel-border: #1f3352;
+    --cyan: #6fd6ff;
+    --cyan-dim: #2a5a78;
+    --steel: #ff9552;
+    --text: #dce7f2;
+    --text-dim: #7c93ab;
+    --mono: 'IBM Plex Mono', 'Menlo', monospace;
+    --sans: 'Pretendard', -apple-system, 'Noto Sans KR', sans-serif;
+  }
+  * { box-sizing: border-box; margin:0; padding:0; }
+  html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); font-family:var(--sans); touch-action:none; }
+  #canvas-wrap { position:fixed; inset:0; }
+  canvas { display:block; touch-action:none; }
+
+  #bg-grid {
+    position:fixed; inset:0; pointer-events:none; opacity:0.35;
+    background-image:
+      linear-gradient(var(--bg-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px);
+    background-size: 42px 42px;
+    mask-image: radial-gradient(ellipse at center, black 0%, transparent 75%);
+  }
+
+  #header {
+    position:fixed; top:0; left:0; right:0; padding:16px 18px 10px;
+    display:flex; align-items:baseline; justify-content:space-between;
+    pointer-events:none; z-index:5;
+  }
+  #header .title { font-family:var(--mono); font-size:13px; letter-spacing:0.12em; color:var(--cyan); text-transform:uppercase; }
+  #header .sub { font-family:var(--mono); font-size:10px; color:var(--text-dim); margin-top:3px; }
+
+  #legend {
+    position:fixed; bottom:14px; left:14px; z-index:5;
+    background:var(--panel); border:1px solid var(--panel-border);
+    border-radius:10px; padding:10px 12px; font-family:var(--mono); font-size:10.5px;
+    display:flex; flex-direction:column; gap:6px; backdrop-filter: blur(6px);
+    max-width:150px;
+  }
+  #legend .item { display:flex; align-items:center; gap:7px; color:var(--text-dim); }
+  #legend .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+
+  #info-panel {
+    position:fixed; top:14px; right:14px; z-index:6;
+    width:min(240px, 42vw);
+    background:var(--panel); border:1px solid var(--panel-border);
+    border-radius:10px; padding:14px; backdrop-filter: blur(6px);
+    opacity:0; transform:translateY(-6px); transition:opacity .18s ease, transform .18s ease;
+    pointer-events:none;
+  }
+  #info-panel.show { opacity:1; transform:translateY(0); pointer-events:auto; }
+  #info-panel .cat { font-family:var(--mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; margin-bottom:5px; }
+  #info-panel .label { font-size:14.5px; font-weight:600; color:var(--text); line-height:1.4; margin-bottom:10px; }
+  #info-panel .stat-row { display:flex; justify-content:space-between; font-family:var(--mono); font-size:11px; color:var(--text-dim); padding:4px 0; border-top:1px solid var(--panel-border); }
+  #info-panel .stat-row b { color:var(--cyan); font-weight:600; }
+
+  #hint {
+    position:fixed; bottom:14px; right:14px; z-index:5;
+    font-family:var(--mono); font-size:9.5px; color:var(--text-dim);
+    text-align:right; line-height:1.6; opacity:0.7;
+  }
+</style>
+</head>
+<body>
+
+<div id="bg-grid"></div>
+<div id="canvas-wrap"></div>
+
+<div id="header">
+  <div>
+    <div class="title">건축구조기술사 · 개념 그래프</div>
+    <div class="sub">NODES: <span id="node-count">0</span> / LINKS: <span id="link-count">0</span></div>
+  </div>
+</div>
+
+<div id="legend"></div>
+
+<div id="info-panel">
+  <div class="cat" id="ip-cat">CATEGORY</div>
+  <div class="label" id="ip-label">개념명</div>
+  <div class="stat-row"><span>연결 개념</span><b id="ip-links">0</b></div>
+  <div class="stat-row"><span>연동 문제</span><b id="ip-problems">0</b></div>
+  <div class="stat-row"><span>플래시카드</span><b id="ip-cards">0</b></div>
+</div>
+
+<div id="hint">드래그: 회전 · 휠/핀치: 확대<br>노드 클릭: 연결 보기</div>
+
+<script>
+// ---------- 데이터: 카테고리 + 노드 + 링크 (샘플) ----------
+const CATEGORIES = {
+  load:   { name: "하중과 응력",   color: 0x6fd6ff },
+  rc:     { name: "철근콘크리트",  color: 0xff9552 },
+  steel:  { name: "강구조",        color: 0x8ef0a0 },
+  found:  { name: "기초구조",      color: 0xd9a4ff },
+  seismic:{ name: "내진설계",      color: 0xffe27a },
+  analysis:{ name: "구조해석",     color: 0xff7a90 },
+};
+
+const RAW_NODES = [
+  { id:"load",    label:"하중과 응력",      cat:"load",   level:0 },
+  { id:"dead",    label:"고정하중",         cat:"load",   level:1 },
+  { id:"live",    label:"활하중",           cat:"load",   level:1 },
+  { id:"wind",    label:"풍하중",           cat:"load",   level:1 },
+  { id:"snow",    label:"적설하중",         cat:"load",   level:1 },
+  { id:"comb",    label:"하중조합",         cat:"load",   level:2, problems:4, cards:3 },
+
+  { id:"rc",      label:"철근콘크리트",     cat:"rc",     level:0 },
+  { id:"flex",    label:"휨설계",           cat:"rc",     level:1 },
+  { id:"shear",   label:"전단설계",         cat:"rc",     level:1, problems:6, cards:4 },
+  { id:"minrein", label:"최소철근비",       cat:"rc",     level:2, problems:3, cards:2 },
+  { id:"deflect", label:"처짐 검토",        cat:"rc",     level:2, problems:2, cards:1 },
+  { id:"devlen",  label:"정착길이",         cat:"rc",     level:2, problems:5, cards:3 },
+
+  { id:"steel",   label:"강구조",           cat:"steel",  level:0 },
+  { id:"buckling",label:"좌굴",             cat:"steel",  level:1, problems:5, cards:2 },
+  { id:"weld",    label:"용접접합",         cat:"steel",  level:1, problems:2, cards:1 },
+  { id:"bolt",    label:"고력볼트접합",     cat:"steel",  level:1, problems:3, cards:2 },
+  { id:"plate",   label:"판폭두께비",       cat:"steel",  level:2, problems:1, cards:1 },
+
+  { id:"found",   label:"기초구조",         cat:"found",  level:0 },
+  { id:"footing", label:"독립기초",         cat:"found",  level:1, problems:2, cards:1 },
+  { id:"pile",    label:"말뚝기초",         cat:"found",  level:1, problems:3, cards:2 },
+  { id:"settle",  label:"침하 해석",        cat:"found",  level:2, problems:1, cards:1 },
+
+  { id:"seismic", label:"내진설계",         cat:"seismic",level:0 },
+  { id:"response",label:"응답스펙트럼",     cat:"seismic",level:1, problems:4, cards:2 },
+  { id:"ductility",label:"연성설계",        cat:"seismic",level:1, problems:3, cards:2 },
+  { id:"baseiso", label:"면진·제진",        cat:"seismic",level:2, problems:2, cards:1 },
+
+  { id:"analysis",label:"구조해석",         cat:"analysis",level:0 },
+  { id:"matrix",  label:"매트릭스 해석법",  cat:"analysis",level:1, problems:3, cards:1 },
+  { id:"pdelta",  label:"P-Delta 효과",     cat:"analysis",level:2, problems:2, cards:1 },
+];
+
+const RAW_LINKS = [
+  ["load","dead"], ["load","live"], ["load","wind"], ["load","snow"], ["load","comb"],
+  ["dead","comb"], ["live","comb"], ["wind","comb"],
+  ["rc","flex"], ["rc","shear"], ["rc","minrein"], ["rc","deflect"], ["rc","devlen"],
+  ["flex","minrein"], ["flex","deflect"], ["shear","minrein"],
+  ["steel","buckling"], ["steel","weld"], ["steel","bolt"], ["steel","plate"],
+  ["buckling","plate"], ["wind","buckling"],
+  ["found","footing"], ["found","pile"], ["found","settle"],
+  ["dead","footing"], ["live","footing"],
+  ["seismic","response"], ["seismic","ductility"], ["seismic","baseiso"],
+  ["wind","response"], ["ductility","flex"], ["ductility","buckling"],
+  ["analysis","matrix"], ["analysis","pdelta"],
+  ["pdelta","buckling"], ["matrix","response"], ["comb","analysis"],
+];
+
+// ---------- legend 렌더 ----------
+const legendEl = document.getElementById('legend');
+Object.values(CATEGORIES).forEach(c=>{
+  const item = document.createElement('div');
+  item.className='item';
+  item.innerHTML = `<span class="dot" style="background:#${c.color.toString(16).padStart(6,'0')}"></span>${c.name}`;
+  legendEl.appendChild(item);
+});
+document.getElementById('node-count').textContent = RAW_NODES.length;
+document.getElementById('link-count').textContent = RAW_LINKS.length;
+
+// ---------- 노드 초기 위치 (구형 분포) ----------
+const nodes = RAW_NODES.map((n,i)=>{
+  const phi = Math.acos(-1 + (2*i)/RAW_NODES.length);
+  const theta = Math.sqrt(RAW_NODES.length*Math.PI) * phi;
+  const r = 55 + n.level*10;
+  return {
+    ...n,
+    x: r*Math.cos(theta)*Math.sin(phi) + (Math.random()-0.5)*10,
+    y: r*Math.sin(theta)*Math.sin(phi) + (Math.random()-0.5)*10,
+    z: r*Math.cos(phi) + (Math.random()-0.5)*10,
+    vx:0, vy:0, vz:0,
+  };
+});
+const nodeById = Object.fromEntries(nodes.map(n=>[n.id,n]));
+const links = RAW_LINKS.map(([s,t])=>({source:nodeById[s], target:nodeById[t]}));
+
+// 인접 리스트 (하이라이트용)
+const neighborMap = {};
+nodes.forEach(n=>neighborMap[n.id]=new Set());
+links.forEach(l=>{ neighborMap[l.source.id].add(l.target.id); neighborMap[l.target.id].add(l.source.id); });
+
+// ---------- 3D 포스 시뮬레이션 (수작업 구현) ----------
+function simulateStep(){
+  const REPULSION = 900;
+  const SPRING = 0.02;
+  const SPRING_LEN = 32;
+  const CENTER = 0.0035;
+  const DAMPING = 0.85;
+
+  for(let i=0;i<nodes.length;i++){
+    for(let j=i+1;j<nodes.length;j++){
+      const a=nodes[i], b=nodes[j];
+      let dx=a.x-b.x, dy=a.y-b.y, dz=a.z-b.z;
+      let distSq = dx*dx+dy*dy+dz*dz+0.01;
+      let dist = Math.sqrt(distSq);
+      let force = REPULSION/distSq;
+      let fx=dx/dist*force, fy=dy/dist*force, fz=dz/dist*force;
+      a.vx+=fx; a.vy+=fy; a.vz+=fz;
+      b.vx-=fx; b.vy-=fy; b.vz-=fz;
+    }
+  }
+  links.forEach(l=>{
+    const a=l.source, b=l.target;
+    let dx=b.x-a.x, dy=b.y-a.y, dz=b.z-a.z;
+    let dist = Math.sqrt(dx*dx+dy*dy+dz*dz)+0.01;
+    let force = (dist-SPRING_LEN)*SPRING;
+    let fx=dx/dist*force, fy=dy/dist*force, fz=dz/dist*force;
+    a.vx+=fx; a.vy+=fy; a.vz+=fz;
+    b.vx-=fx; b.vy-=fy; b.vz-=fz;
+  });
+  nodes.forEach(n=>{
+    n.vx -= n.x*CENTER; n.vy -= n.y*CENTER; n.vz -= n.z*CENTER;
+    n.vx*=DAMPING; n.vy*=DAMPING; n.vz*=DAMPING;
+    n.x+=n.vx; n.y+=n.vy; n.z+=n.vz;
+  });
+}
+for(let i=0;i<120;i++) simulateStep(); // 초기 레이아웃 미리 수렴
+
+// ---------- Three.js 씬 ----------
+const wrap = document.getElementById('canvas-wrap');
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x0a1626, 0.0032);
+
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth/window.innerHeight, 0.1, 5000);
+camera.position.set(0,0,260);
+
+const renderer = new THREE.WebGLRenderer({antialias:true, alpha:false});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x0a1626, 1);
+wrap.appendChild(renderer.domElement);
+
+const ambient = new THREE.AmbientLight(0xffffff, 0.9);
+scene.add(ambient);
+const point = new THREE.PointLight(0x6fd6ff, 0.6);
+point.position.set(100,100,150);
+scene.add(point);
+
+// 노드 메쉬
+function makeLabelSprite(text, color){
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  const fontSize = 42;
+  ctx.font = `600 ${fontSize}px Pretendard, sans-serif`;
+  const w = ctx.measureText(text).width + 40;
+  canvas.width = w; canvas.height = fontSize*1.8;
+  ctx.font = `600 ${fontSize}px Pretendard, sans-serif`;
+  ctx.fillStyle = 'rgba(10,22,38,0.72)';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = '#dce7f2';
+  ctx.textBaseline='middle'; ctx.textAlign='center';
+  ctx.fillText(text, canvas.width/2, canvas.height/2+2);
+  const tex = new THREE.CanvasTexture(canvas);
+  const mat = new THREE.SpriteMaterial({map:tex, transparent:true, depthWrite:false});
+  const sprite = new THREE.Sprite(mat);
+  const scale = 0.09;
+  sprite.scale.set(canvas.width*scale, canvas.height*scale, 1);
+  return sprite;
+}
+
+const nodeGroup = new THREE.Group();
+scene.add(nodeGroup);
+
+nodes.forEach(n=>{
+  const color = CATEGORIES[n.cat].color;
+  const size = n.level===0 ? 4.6 : n.level===1 ? 3.2 : 2.3;
+  const geo = new THREE.SphereGeometry(size, 20, 20);
+  const mat = new THREE.MeshStandardMaterial({
+    color, emissive:color, emissiveIntensity:0.55, roughness:0.4, metalness:0.1
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(n.x,n.y,n.z);
+  mesh.userData = { id:n.id, baseColor:color, baseEmissive:0.55, baseSize:size };
+  nodeGroup.add(mesh);
+  n.mesh = mesh;
+
+  const label = makeLabelSprite(n.label, color);
+  label.position.set(n.x, n.y+size+6, n.z);
+  nodeGroup.add(label);
+  n.label3d = label;
+});
+
+// 링크 라인
+const linkGroup = new THREE.Group();
+scene.add(linkGroup);
+links.forEach(l=>{
+  const geo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(l.source.x,l.source.y,l.source.z),
+    new THREE.Vector3(l.target.x,l.target.y,l.target.z)
+  ]);
+  const mat = new THREE.LineBasicMaterial({color:0x2a5a78, transparent:true, opacity:0.55});
+  const line = new THREE.Line(geo, mat);
+  linkGroup.add(line);
+  l.line = line;
+});
+
+// ---------- 카메라 궤도 컨트롤 (수작업: OrbitControls 미사용 환경 대응) ----------
+let camTheta = 0.6, camPhi = 1.15, camDist = 260;
+let targetTheta = camTheta, targetPhi = camPhi, targetDist = camDist;
+let isDragging = false, lastX=0, lastY=0;
+let autoRotate = true;
+
+function updateCameraFromSpherical(){
+  camera.position.x = camDist * Math.sin(camPhi) * Math.sin(camTheta);
+  camera.position.y = camDist * Math.cos(camPhi);
+  camera.position.z = camDist * Math.sin(camPhi) * Math.cos(camTheta);
+  camera.lookAt(0,0,0);
+}
+updateCameraFromSpherical();
+
+function onDown(x,y){ isDragging=true; lastX=x; lastY=y; autoRotate=false; }
+function onMove(x,y){
+  if(!isDragging) return;
+  const dx = x-lastX, dy = y-lastY;
+  targetTheta -= dx*0.006;
+  targetPhi -= dy*0.006;
+  targetPhi = Math.max(0.25, Math.min(Math.PI-0.25, targetPhi));
+  lastX=x; lastY=y;
+}
+function onUp(){ isDragging=false; }
+
+renderer.domElement.addEventListener('mousedown', e=>onDown(e.clientX,e.clientY));
+window.addEventListener('mousemove', e=>onMove(e.clientX,e.clientY));
+window.addEventListener('mouseup', onUp);
+
+renderer.domElement.addEventListener('touchstart', e=>{
+  if(e.touches.length===1) onDown(e.touches[0].clientX, e.touches[0].clientY);
+  lastPinch = e.touches.length===2 ? pinchDist(e.touches) : null;
+}, {passive:true});
+renderer.domElement.addEventListener('touchmove', e=>{
+  if(e.touches.length===1) onMove(e.touches[0].clientX, e.touches[0].clientY);
+  else if(e.touches.length===2){
+    const d = pinchDist(e.touches);
+    if(lastPinch){ targetDist -= (d-lastPinch)*0.5; targetDist = Math.max(60,Math.min(600,targetDist)); }
+    lastPinch = d;
+  }
+}, {passive:true});
+renderer.domElement.addEventListener('touchend', ()=>{ onUp(); lastPinch=null; });
+let lastPinch=null;
+function pinchDist(t){ return Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY); }
+
+renderer.domElement.addEventListener('wheel', e=>{
+  e.preventDefault();
+  targetDist += e.deltaY*0.08;
+  targetDist = Math.max(60, Math.min(600, targetDist));
+}, {passive:false});
+
+// ---------- 노드 클릭: 레이캐스트 + 하이라이트 ----------
+const raycaster = new THREE.Raycaster();
+raycaster.params.Points.threshold = 3;
+const mouseVec = new THREE.Vector2();
+let selectedId = null;
+
+function handlePick(clientX, clientY){
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouseVec.x = ((clientX-rect.left)/rect.width)*2-1;
+  mouseVec.y = -((clientY-rect.top)/rect.height)*2+1;
+  raycaster.setFromCamera(mouseVec, camera);
+  const hits = raycaster.intersectObjects(nodeGroup.children.filter(o=>o.type==='Mesh'));
+  if(hits.length>0){
+    selectNode(hits[0].object.userData.id);
+  } else {
+    selectNode(null);
+  }
+}
+renderer.domElement.addEventListener('click', e=>{
+  if(Math.abs(e.clientX-lastX)<3 || !isDragging===false){} // no-op guard
+  handlePick(e.clientX, e.clientY);
+});
+
+const infoPanel = document.getElementById('info-panel');
+function selectNode(id){
+  selectedId = id;
+  const neighbors = id ? neighborMap[id] : null;
+
+  nodes.forEach(n=>{
+    const dim = id && n.id!==id && !neighbors.has(n.id);
+    const isSel = n.id===id;
+    n.mesh.material.emissiveIntensity = isSel ? 1.1 : dim ? 0.12 : 0.55;
+    n.mesh.material.opacity = dim ? 0.25 : 1;
+    n.mesh.material.transparent = true;
+    n.mesh.scale.setScalar(isSel ? 1.6 : 1);
+    n.label3d.material.opacity = dim ? 0.15 : 1;
+  });
+  links.forEach(l=>{
+    const active = id && (l.source.id===id || l.target.id===id);
+    l.line.material.opacity = id ? (active?0.9:0.05) : 0.55;
+    l.line.material.color.set(active ? 0xff9552 : 0x2a5a78);
+  });
+
+  if(id){
+    const n = nodeById[id];
+    document.getElementById('ip-cat').textContent = CATEGORIES[n.cat].name;
+    document.getElementById('ip-cat').style.color = '#'+CATEGORIES[n.cat].color.toString(16).padStart(6,'0');
+    document.getElementById('ip-label').textContent = n.label;
+    document.getElementById('ip-links').textContent = neighbors.size;
+    document.getElementById('ip-problems').textContent = n.problems||0;
+    document.getElementById('ip-cards').textContent = n.cards||0;
+    infoPanel.classList.add('show');
+  } else {
+    infoPanel.classList.remove('show');
+  }
+}
+
+// ---------- 리사이즈 ----------
+window.addEventListener('resize', ()=>{
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ---------- 애니메이션 루프 ----------
+function animate(){
+  requestAnimationFrame(animate);
+
+  if(autoRotate && !isDragging) targetTheta += 0.0016;
+  camTheta += (targetTheta-camTheta)*0.08;
+  camPhi += (targetPhi-camPhi)*0.08;
+  camDist += (targetDist-camDist)*0.08;
+  updateCameraFromSpherical();
+
+  // 라벨이 항상 카메라를 향하도록 (Sprite는 기본적으로 billboard)
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>

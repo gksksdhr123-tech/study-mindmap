@@ -1,0 +1,15 @@
+{
+  "name": "요점정리 마인드맵",
+  "short_name": "마인드맵",
+  "description": "구조기술사 시험 대비 3D 마인드맵 노트",
+  "start_url": "./mindmap-notes.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a1626",
+  "theme_color": "#0a1626",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
