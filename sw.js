@@ -1,4 +1,4 @@
-const CACHE_NAME = 'study-mindmap-v6';
+const CACHE_NAME = 'study-mindmap-v7';
 const THREE_JS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
 const SAME_ORIGIN_URLS = [
   './mindmap-notes.html',

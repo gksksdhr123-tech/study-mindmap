@@ -47,6 +47,11 @@
     background:var(--panel); border:1px solid var(--panel-border); color:var(--cyan);
     font-family:var(--mono); font-size:10px; padding:4px 10px; border-radius:12px; cursor:pointer;
   }
+  #reviewBtn {
+    pointer-events:auto; display:inline-block; margin-top:6px; margin-left:6px;
+    background:var(--panel); border:1px solid var(--panel-border); color:var(--steel);
+    font-family:var(--mono); font-size:10px; padding:4px 10px; border-radius:12px; cursor:pointer;
+  }
 
   #universe-overlay {
     position:fixed; inset:0; z-index:25; display:none;
@@ -259,6 +264,62 @@
   #problem-box .btn-row button.primary { background:var(--cyan); color:#0a1626; border-color:var(--cyan); font-weight:600; }
   #problem-box .btn-row button.danger { color:#ff6b6b; }
 
+  #ip-flashcards { margin-bottom:8px; }
+  #ip-addcard { width:100%; margin-bottom:8px; }
+  .card-row {
+    display:flex; align-items:center; gap:8px; padding:8px; border-radius:6px; margin-bottom:5px;
+    background:#0a1626; border:1px solid var(--panel-border); cursor:pointer;
+  }
+  .card-row-body { flex:1; min-width:0; }
+  .card-front { font-size:11.5px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .card-streak { font-family:var(--mono); font-size:9px; color:var(--text-dim); margin-top:2px; }
+  .card-del { flex-shrink:0; background:none; border:none; color:#ff6b6b; font-size:14px; cursor:pointer; padding:2px 4px; }
+
+  #card-overlay {
+    position:fixed; inset:0; z-index:27; display:none;
+    background:rgba(5,10,18,0.8); align-items:center; justify-content:center; padding:16px;
+  }
+  #card-box {
+    width:min(380px, 94vw); background:var(--panel); border:1px solid var(--panel-border);
+    border-radius:12px; padding:16px; display:flex; flex-direction:column; gap:10px;
+  }
+  #card-box h3 { font-family:var(--mono); font-size:13px; color:var(--cyan); letter-spacing:.04em; }
+  #card-box label { display:block; font-family:var(--mono); font-size:10px; color:var(--text-dim); margin-bottom:4px; }
+  #card-box textarea {
+    width:100%; background:#0a1626; border:1px solid var(--panel-border); color:var(--text);
+    border-radius:6px; padding:9px; font-family:var(--sans); font-size:13px; margin-bottom:10px; resize:vertical; min-height:60px;
+  }
+  #card-box .btn-row { display:flex; gap:8px; }
+  #card-box .btn-row button { flex:1; padding:10px; border-radius:8px; border:1px solid var(--panel-border); background:#0a1626; color:var(--text-dim); font-family:var(--mono); font-size:12px; cursor:pointer; }
+  #card-box .btn-row button.primary { background:var(--steel); color:#0a1626; border-color:var(--steel); font-weight:600; }
+
+  #review-overlay {
+    position:fixed; inset:0; z-index:29; display:none; flex-direction:column;
+    background:var(--bg); align-items:center;
+  }
+  #review-topbar {
+    width:100%; display:flex; align-items:center; justify-content:space-between; padding:16px;
+    font-family:var(--mono); font-size:11px; color:var(--text-dim);
+  }
+  #review-close { background:var(--panel); border:1px solid var(--panel-border); color:var(--text-dim); width:32px; height:32px; border-radius:8px; cursor:pointer; font-size:16px; }
+  #review-stage { flex:1; width:100%; display:flex; align-items:center; justify-content:center; padding:20px; }
+  #review-card {
+    width:min(480px, 100%); min-height:260px; background:var(--panel); border:1px solid var(--panel-border);
+    border-radius:16px; padding:28px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; cursor:pointer; gap:14px;
+  }
+  #review-card-label { font-family:var(--mono); font-size:9.5px; color:var(--text-dim); letter-spacing:.08em; text-transform:uppercase; }
+  #review-card-text { font-size:19px; color:var(--text); line-height:1.5; white-space:pre-wrap; }
+  #review-card-hint { font-family:var(--mono); font-size:9.5px; color:var(--text-dim); opacity:0.7; }
+  #review-bottombar { width:100%; padding:16px 20px 26px; display:flex; gap:10px; justify-content:center; }
+  #review-bottombar button {
+    flex:1; max-width:200px; padding:14px; border-radius:10px; border:none;
+    font-family:var(--mono); font-size:13px; font-weight:600; cursor:pointer;
+  }
+  #review-dontknow { background:#2a2030; color:#ff9b9b; }
+  #review-know { background:var(--cyan); color:#0a1626; }
+  #review-empty { font-family:var(--mono); font-size:12px; color:var(--text-dim); text-align:center; padding:40px; }
+
   #modal-overlay {
     position:fixed; inset:0; z-index:20; display:none;
     background:rgba(5,10,18,0.75); align-items:center; justify-content:center;
@@ -326,6 +387,7 @@
 <div id="header">
   <div class="title">요점정리 마인드맵</div>
   <button id="universeBadge">유니버스: <span id="universe-name">-</span> ▾</button>
+  <button id="reviewBtn">🗂 복습 (<span id="review-count">0</span>)</button>
   <div class="sub">NODES: <span id="node-count">0</span> / LINKS: <span id="link-count">0</span></div>
   <div class="sub2">드래그: 회전 · 휠/핀치: 확대 · 노드 드래그: 이동 · 탭: 선택</div>
 </div>
@@ -362,6 +424,8 @@
   <input type="file" id="ip-camera-input" accept="image/*" capture="environment" style="display:none">
   <button id="ip-camera-add">📷 촬영해서 텍스트 인식</button>
   <div id="ip-problems"></div>
+  <div id="ip-flashcards"></div>
+  <button id="ip-addcard">+ 플래시카드 만들기</button>
   <div class="stat-row">연결 개념 <b id="ip-links">0</b></div>
   <div class="btn-row">
     <button id="ip-addchild">+ 하위개념</button>
@@ -429,9 +493,43 @@
     </div>
     <textarea id="problem-box-text"></textarea>
     <div class="btn-row">
+      <button id="problem-box-addcard">+ 카드 만들기</button>
       <button id="problem-box-save" class="primary">저장</button>
       <button id="problem-box-delete" class="danger">삭제</button>
     </div>
+  </div>
+</div>
+
+<div id="card-overlay">
+  <div id="card-box">
+    <h3>플래시카드 만들기</h3>
+    <label>앞면 (질문/키워드)</label>
+    <textarea id="card-front"></textarea>
+    <label>뒷면 (답)</label>
+    <textarea id="card-back"></textarea>
+    <div class="btn-row">
+      <button id="card-cancel">취소</button>
+      <button id="card-save" class="primary">저장</button>
+    </div>
+  </div>
+</div>
+
+<div id="review-overlay">
+  <div id="review-topbar">
+    <span id="review-progress">0 / 0</span>
+    <button id="review-close">×</button>
+  </div>
+  <div id="review-stage">
+    <div id="review-card">
+      <div id="review-card-label">앞면</div>
+      <div id="review-card-text"></div>
+      <div id="review-card-hint">탭해서 뒤집기</div>
+    </div>
+    <div id="review-empty" style="display:none">아직 플래시카드가 없어요.<br>노드나 문제 카드에서 "+ 플래시카드 만들기"로 추가해보세요.</div>
+  </div>
+  <div id="review-bottombar">
+    <button id="review-dontknow">다시 (모름)</button>
+    <button id="review-know">외웠음</button>
   </div>
 </div>
 
@@ -467,6 +565,7 @@ let categories = {};   // name -> colorHex(number)
 let nodes = [];        // {id,label,category,level,content,files[],fixed,x,y,z,vx,vy,vz}
 let links = [];        // {source, target} node object refs
 let problems = [];     // {id,examRound,examNumber,ocrText,imageDataUrl,createdAt,nodeIds[]}
+let flashcards = [];   // {id,front,back,sourceType,sourceId,nodeIds[],createdAt,knownStreak,lastReviewed}
 let neighborMap = {};
 let selectedId = null;
 let linkSourceId = null;
@@ -564,6 +663,7 @@ function applyLoadedData(data){
   });
   links = (data.links||[]).map(([s,t])=>({source:byId[s], target:byId[t]})).filter(l=>l.source && l.target);
   problems = (data.problems||[]).map(p=>({...p, nodeIds:p.nodeIds||[]}));
+  flashcards = (data.flashcards||[]).map(c=>({...c, nodeIds:c.nodeIds||[], knownStreak:c.knownStreak||0}));
 }
 async function loadData(){
   try{
@@ -605,6 +705,7 @@ async function saveData(){
     nodes: nodes.map(n=>({id:n.id, label:n.label, category:n.category, level:n.level, content:n.content||'', files:n.files||[], fixed:!!n.fixed, x:n.x, y:n.y, z:n.z})),
     links: links.map(l=>[l.source.id, l.target.id]),
     problems,
+    flashcards,
   };
   try{
     await idbPutUniverse(data);
@@ -856,6 +957,7 @@ function rebuildScene(){
   refreshCategoryList();
   refreshLegend();
   refreshViewpoints();
+  updateReviewCount();
   renderer.render(scene, camera); // matrixWorld를 즉시 갱신해 rAF 이전에도 레이캐스팅이 정확하게 동작하도록 함
 }
 dataReady.then(()=>{ rebuildScene(); updateUniverseBadge(); });
@@ -1372,6 +1474,167 @@ document.getElementById('problem-box-delete').addEventListener('click', ()=>{
   closeProblemDetail();
 });
 
+// ---------- 플래시카드 ----------
+function renderFlashcards(n){
+  const el = document.getElementById('ip-flashcards');
+  el.innerHTML = '';
+  const linked = flashcards.filter(c=>c.nodeIds.includes(n.id));
+  if(linked.length===0) return;
+  const header = document.createElement('div');
+  header.className = 'problem-header';
+  header.textContent = '플래시카드 (' + linked.length + ')';
+  el.appendChild(header);
+  linked.forEach(c=>{
+    const row = document.createElement('div');
+    row.className = 'card-row';
+    const body = document.createElement('div');
+    body.className = 'card-row-body';
+    const front = document.createElement('div');
+    front.className = 'card-front';
+    front.textContent = c.front;
+    const streak = document.createElement('div');
+    streak.className = 'card-streak';
+    streak.textContent = '연속 정답 ' + (c.knownStreak||0) + '회';
+    body.appendChild(front); body.appendChild(streak);
+    row.appendChild(body);
+    row.addEventListener('click', ()=>openCardModal({editId:c.id}));
+    const delBtn = document.createElement('button');
+    delBtn.className = 'card-del';
+    delBtn.textContent = '×';
+    delBtn.addEventListener('click', ev=>{ ev.stopPropagation(); removeCard(c.id); });
+    row.appendChild(delBtn);
+    el.appendChild(row);
+  });
+}
+function removeCard(id){
+  if(!confirm('이 플래시카드를 삭제할까요?')) return;
+  flashcards = flashcards.filter(c=>c.id!==id);
+  saveData();
+  const n = nodes.find(x=>x.id===selectedId);
+  if(n) renderFlashcards(n);
+  updateReviewCount();
+}
+
+let cardEditId = null;
+let cardCreateCtx = null; // {nodeIds, sourceType, sourceId}
+function openCardModal(opts){
+  const front = document.getElementById('card-front');
+  const back = document.getElementById('card-back');
+  if(opts.editId){
+    cardEditId = opts.editId;
+    cardCreateCtx = null;
+    const c = flashcards.find(x=>x.id===opts.editId);
+    front.value = c.front; back.value = c.back;
+  } else {
+    cardEditId = null;
+    cardCreateCtx = opts.ctx;
+    front.value = opts.front || '';
+    back.value = opts.back || '';
+  }
+  document.getElementById('card-overlay').style.display = 'flex';
+}
+function closeCardModal(){
+  document.getElementById('card-overlay').style.display = 'none';
+  cardEditId = null; cardCreateCtx = null;
+}
+document.getElementById('card-cancel').addEventListener('click', closeCardModal);
+document.getElementById('card-overlay').addEventListener('click', e=>{ if(e.target.id==='card-overlay') closeCardModal(); });
+document.getElementById('card-save').addEventListener('click', ()=>{
+  const front = document.getElementById('card-front').value.trim();
+  const back = document.getElementById('card-back').value.trim();
+  if(!front || !back) return;
+  if(cardEditId){
+    const c = flashcards.find(x=>x.id===cardEditId);
+    c.front = front; c.back = back;
+  } else if(cardCreateCtx){
+    flashcards.push({
+      id: 'c_'+Date.now()+'_'+Math.floor(Math.random()*1000),
+      front, back,
+      sourceType: cardCreateCtx.sourceType, sourceId: cardCreateCtx.sourceId,
+      nodeIds: cardCreateCtx.nodeIds,
+      createdAt: Date.now(), knownStreak: 0, lastReviewed: null,
+    });
+  }
+  saveData();
+  const n = nodes.find(x=>x.id===selectedId);
+  if(n) renderFlashcards(n);
+  updateReviewCount();
+  closeCardModal();
+});
+document.getElementById('ip-addcard').addEventListener('click', ()=>{
+  const n = nodes.find(x=>x.id===selectedId);
+  if(!n) return;
+  openCardModal({ front:n.label, back:n.content||'', ctx:{sourceType:'node', sourceId:n.id, nodeIds:[n.id]} });
+});
+document.getElementById('problem-box-addcard').addEventListener('click', ()=>{
+  const p = problems.find(x=>x.id===currentProblemId);
+  if(!p) return;
+  const metaBits = [];
+  if(p.examRound) metaBits.push(p.examRound+'회');
+  if(p.examNumber) metaBits.push(p.examNumber+'번');
+  openCardModal({ front: metaBits.length?metaBits.join(' '):'문제', back:p.ocrText||'', ctx:{sourceType:'problem', sourceId:p.id, nodeIds:p.nodeIds.slice()} });
+});
+
+// ---------- 복습 모드 ----------
+function updateReviewCount(){
+  document.getElementById('review-count').textContent = flashcards.length;
+}
+let reviewQueue = [];
+let reviewIndex = 0;
+let reviewFlipped = false;
+function openReviewMode(){
+  reviewQueue = flashcards.slice().sort((a,b)=>(a.knownStreak||0)-(b.knownStreak||0) || Math.random()-0.5);
+  reviewIndex = 0;
+  reviewFlipped = false;
+  document.getElementById('review-overlay').style.display = 'flex';
+  renderReviewCard();
+}
+function closeReviewMode(){
+  document.getElementById('review-overlay').style.display = 'none';
+}
+function renderReviewCard(){
+  const stage = document.getElementById('review-stage');
+  const card = document.getElementById('review-card');
+  const empty = document.getElementById('review-empty');
+  document.getElementById('review-progress').textContent = reviewQueue.length ? (Math.min(reviewIndex+1, reviewQueue.length))+' / '+reviewQueue.length : '0 / 0';
+  if(reviewQueue.length===0 || reviewIndex>=reviewQueue.length){
+    card.style.display = 'none';
+    empty.style.display = 'block';
+    empty.innerHTML = reviewQueue.length ? '복습 완료! 🎉<br><span style="font-size:10px">닫고 다시 열면 새로 시작합니다</span>' : '아직 플래시카드가 없어요.<br>노드나 문제 카드에서 "+ 플래시카드 만들기"로 추가해보세요.';
+    document.getElementById('review-bottombar').style.display = 'none';
+    return;
+  }
+  card.style.display = 'flex';
+  empty.style.display = 'none';
+  document.getElementById('review-bottombar').style.display = 'flex';
+  const c = reviewQueue[reviewIndex];
+  reviewFlipped = false;
+  document.getElementById('review-card-label').textContent = '앞면';
+  document.getElementById('review-card-text').textContent = c.front;
+  document.getElementById('review-card-hint').textContent = '탭해서 뒤집기';
+}
+document.getElementById('review-card').addEventListener('click', ()=>{
+  if(reviewIndex>=reviewQueue.length) return;
+  reviewFlipped = !reviewFlipped;
+  const c = reviewQueue[reviewIndex];
+  document.getElementById('review-card-label').textContent = reviewFlipped ? '뒷면' : '앞면';
+  document.getElementById('review-card-text').textContent = reviewFlipped ? c.back : c.front;
+  document.getElementById('review-card-hint').textContent = reviewFlipped ? '탭해서 앞면 보기' : '탭해서 뒤집기';
+});
+function advanceReview(known){
+  if(reviewIndex>=reviewQueue.length) return;
+  const c = reviewQueue[reviewIndex];
+  c.knownStreak = known ? (c.knownStreak||0)+1 : 0;
+  c.lastReviewed = Date.now();
+  saveData();
+  reviewIndex++;
+  renderReviewCard();
+}
+document.getElementById('review-know').addEventListener('click', ()=>advanceReview(true));
+document.getElementById('review-dontknow').addEventListener('click', ()=>advanceReview(false));
+document.getElementById('reviewBtn').addEventListener('click', openReviewMode);
+document.getElementById('review-close').addEventListener('click', closeReviewMode);
+
 // 뷰어 창 드래그 이동 (헤더를 잡고 이동)
 (function(){
   const header = document.getElementById('fv-header');
@@ -1427,6 +1690,7 @@ function selectNode(id, silent){
     ipLinks.textContent = neighbors.size;
     renderImages(n);
     renderProblems(n);
+    renderFlashcards(n);
     infoPanel.classList.add('show');
     if(!silent && n.files && n.files.length) openViewer(n.files, 0);
     else if(!silent) closeViewer();
@@ -1450,6 +1714,7 @@ document.getElementById('ip-delete').addEventListener('click', ()=>{
   nodes = nodes.filter(n=>n.id!==selectedId);
   links = links.filter(l=>l.source.id!==selectedId && l.target.id!==selectedId);
   problems.forEach(p=>{ p.nodeIds = p.nodeIds.filter(id=>id!==selectedId); });
+  flashcards.forEach(c=>{ c.nodeIds = c.nodeIds.filter(id=>id!==selectedId); });
   selectedId = null;
   resettle(60);
   saveData();
