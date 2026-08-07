@@ -42,6 +42,47 @@
   #header .title { font-family:var(--mono); font-size:13px; letter-spacing:0.12em; color:var(--cyan); text-transform:uppercase; }
   #header .sub { font-family:var(--mono); font-size:10px; color:var(--text-dim); margin-top:3px; }
   #header .sub2 { font-family:var(--mono); font-size:9px; color:var(--text-dim); margin-top:2px; opacity:0.75; }
+  #universeBadge {
+    pointer-events:auto; display:inline-block; margin-top:6px;
+    background:var(--panel); border:1px solid var(--panel-border); color:var(--cyan);
+    font-family:var(--mono); font-size:10px; padding:4px 10px; border-radius:12px; cursor:pointer;
+  }
+
+  #universe-overlay {
+    position:fixed; inset:0; z-index:25; display:none;
+    background:rgba(5,10,18,0.75); align-items:center; justify-content:center;
+  }
+  #universe-modal-box {
+    width:min(360px, 90vw); max-height:80vh; overflow-y:auto;
+    background:var(--panel); border:1px solid var(--panel-border); border-radius:12px; padding:18px;
+  }
+  #universe-modal-box h3 { font-family:var(--mono); font-size:13px; color:var(--cyan); margin-bottom:12px; letter-spacing:.04em; }
+  .universe-row {
+    display:flex; align-items:center; gap:8px; padding:10px; border-radius:8px; margin-bottom:6px;
+    background:#0a1626; border:1px solid var(--panel-border); cursor:pointer;
+  }
+  .universe-row.active { border-color:var(--cyan); }
+  .universe-row-info { flex:1; display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .universe-row-info b { font-size:13px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .universe-row-info span { font-family:var(--mono); font-size:9.5px; color:var(--text-dim); }
+  .universe-row button {
+    flex-shrink:0; font-family:var(--mono); font-size:10px; padding:6px 8px; border-radius:6px;
+    border:1px solid var(--panel-border); background:#132038; color:var(--text-dim); cursor:pointer;
+  }
+  .universe-row button.danger { color:#ff6b6b; }
+  .universe-new-row { display:flex; gap:6px; margin:12px 0; }
+  .universe-new-row input {
+    flex:1; background:#0a1626; border:1px solid var(--panel-border); color:var(--text);
+    border-radius:6px; padding:8px; font-family:var(--sans); font-size:13px;
+  }
+  .universe-new-row button {
+    background:var(--steel); color:#0a1626; border:none; border-radius:6px; padding:0 14px;
+    font-family:var(--mono); font-size:12px; font-weight:600; cursor:pointer;
+  }
+  #universe-modal-close {
+    width:100%; padding:10px; border-radius:8px; border:1px solid var(--panel-border);
+    background:#0a1626; color:var(--text-dim); font-family:var(--mono); font-size:12px; cursor:pointer;
+  }
 
   #emptyHint {
     position:fixed; inset:0; display:none; align-items:center; justify-content:center;
@@ -183,8 +224,21 @@
 
 <div id="header">
   <div class="title">요점정리 마인드맵</div>
+  <button id="universeBadge">유니버스: <span id="universe-name">-</span> ▾</button>
   <div class="sub">NODES: <span id="node-count">0</span> / LINKS: <span id="link-count">0</span></div>
   <div class="sub2">드래그: 회전 · 휠/핀치: 확대 · 노드 드래그: 이동 · 탭: 선택</div>
+</div>
+
+<div id="universe-overlay">
+  <div id="universe-modal-box">
+    <h3>유니버스 (개별 마인드맵)</h3>
+    <div id="universe-list"></div>
+    <div class="universe-new-row">
+      <input id="new-universe-name" type="text" placeholder="새 유니버스 이름">
+      <button id="create-universe-btn">+ 만들기</button>
+    </div>
+    <button id="universe-modal-close">닫기</button>
+  </div>
 </div>
 
 <div id="emptyHint">+ 버튼을 눌러 첫 개념을 추가하세요</div>
@@ -265,14 +319,25 @@ let draggingNodeId = null;
 
 // IndexedDB: localStorage보다 용량 한계가 훨씬 커서 이미지/PDF 저장에 안전함.
 // 브라우저 안에 내장된 저장소라는 점은 localStorage와 동일 — 서버로 전송되지 않음.
+// 'universes' 스토어에 마인드맵(유니버스)을 여러 개 독립적으로 저장, 어느 걸 보고 있는지는
+// localStorage의 작은 포인터(ACTIVE_KEY)로만 추적함(용량 걱정 없는 값이라 IndexedDB까지 안 씀).
 const DB_NAME = 'study_mindmap_db';
-const DB_STORE = 'state';
+const DB_STORE = 'state';        // 구버전(단일 그래프) 스토어 — 마이그레이션 읽기용으로만 유지
+const UNIVERSE_STORE = 'universes';
+const ACTIVE_KEY = 'active_universe_id';
 let dbPromise = null;
+let activeUniverseId = null;
+let currentUniverseMeta = { name:'', createdAt:0 };
+
 function openDB(){
   if(dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject)=>{
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = ()=>{ req.result.createObjectStore(DB_STORE); };
+    const req = indexedDB.open(DB_NAME, 2);
+    req.onupgradeneeded = ()=>{
+      const db = req.result;
+      if(!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
+      if(!db.objectStoreNames.contains(UNIVERSE_STORE)) db.createObjectStore(UNIVERSE_STORE, {keyPath:'id'});
+    };
     req.onsuccess = ()=>resolve(req.result);
     req.onerror = ()=>reject(req.error);
   });
@@ -286,14 +351,37 @@ function idbGet(key){
     req.onerror = ()=>reject(req.error);
   }));
 }
-function idbSet(key, value){
+function idbAllUniverses(){
   return openDB().then(db=>new Promise((resolve,reject)=>{
-    const tx = db.transaction(DB_STORE, 'readwrite');
-    tx.objectStore(DB_STORE).put(value, key);
+    const req = db.transaction(UNIVERSE_STORE,'readonly').objectStore(UNIVERSE_STORE).getAll();
+    req.onsuccess = ()=>resolve(req.result||[]);
+    req.onerror = ()=>reject(req.error);
+  }));
+}
+function idbGetUniverse(id){
+  return openDB().then(db=>new Promise((resolve,reject)=>{
+    const req = db.transaction(UNIVERSE_STORE,'readonly').objectStore(UNIVERSE_STORE).get(id);
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = ()=>reject(req.error);
+  }));
+}
+function idbPutUniverse(record){
+  return openDB().then(db=>new Promise((resolve,reject)=>{
+    const tx = db.transaction(UNIVERSE_STORE,'readwrite');
+    tx.objectStore(UNIVERSE_STORE).put(record);
     tx.oncomplete = ()=>resolve();
     tx.onerror = ()=>reject(tx.error);
   }));
 }
+function idbDeleteUniverse(id){
+  return openDB().then(db=>new Promise((resolve,reject)=>{
+    const tx = db.transaction(UNIVERSE_STORE,'readwrite');
+    tx.objectStore(UNIVERSE_STORE).delete(id);
+    tx.oncomplete = ()=>resolve();
+    tx.onerror = ()=>reject(tx.error);
+  }));
+}
+function genUniverseId(){ return 'u_'+Date.now()+'_'+Math.floor(Math.random()*1000); }
 
 function applyLoadedData(data){
   categories = data.categories || {};
@@ -310,27 +398,46 @@ function applyLoadedData(data){
 }
 async function loadData(){
   try{
-    let data = await idbGet('main');
-    if(!data){
-      // localStorage(구버전)에 남아있던 데이터가 있으면 IndexedDB로 1회 이전
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if(raw){
-        data = JSON.parse(raw);
-        await idbSet('main', data);
-        localStorage.removeItem(STORAGE_KEY);
+    let universes = await idbAllUniverses();
+    if(universes.length===0){
+      // 마이그레이션: 기존 단일 그래프(IndexedDB state/main 또는 구버전 localStorage)를 첫 유니버스로 변환
+      let legacy = await idbGet('main');
+      if(!legacy){
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if(raw){ legacy = JSON.parse(raw); localStorage.removeItem(STORAGE_KEY); }
       }
+      const id = genUniverseId();
+      const now = Date.now();
+      const record = {
+        id, name:'기본 마인드맵', createdAt:now, updatedAt:now,
+        categories: (legacy && legacy.categories) || {},
+        nodes: (legacy && legacy.nodes) || [],
+        links: (legacy && legacy.links) || [],
+      };
+      await idbPutUniverse(record);
+      universes = [record];
     }
-    if(data) applyLoadedData(data);
+    let activeId = localStorage.getItem(ACTIVE_KEY);
+    let active = (activeId && universes.find(u=>u.id===activeId)) || universes.sort((a,b)=>b.updatedAt-a.updatedAt)[0];
+    activeUniverseId = active.id;
+    currentUniverseMeta = { name: active.name, createdAt: active.createdAt };
+    localStorage.setItem(ACTIVE_KEY, activeUniverseId);
+    applyLoadedData(active);
   }catch(e){ console.warn('load failed', e); }
 }
 async function saveData(){
+  if(!activeUniverseId) return;
   const data = {
+    id: activeUniverseId,
+    name: currentUniverseMeta.name,
+    createdAt: currentUniverseMeta.createdAt,
+    updatedAt: Date.now(),
     categories,
     nodes: nodes.map(n=>({id:n.id, label:n.label, category:n.category, level:n.level, content:n.content||'', files:n.files||[], fixed:!!n.fixed, x:n.x, y:n.y, z:n.z})),
     links: links.map(l=>[l.source.id, l.target.id]),
   };
   try{
-    await idbSet('main', data);
+    await idbPutUniverse(data);
   }catch(e){
     alert('저장에 실패했습니다: ' + e.message);
   }
@@ -343,6 +450,102 @@ function colorFor(cat){
   return categories[cat];
 }
 function hex(c){ return '#'+c.toString(16).padStart(6,'0'); }
+
+// ---------- 유니버스(개별 마인드맵) 관리 ----------
+function updateUniverseBadge(){
+  document.getElementById('universe-name').textContent = currentUniverseMeta.name;
+}
+async function switchUniverse(id){
+  if(id===activeUniverseId){ closeUniverseModal(); return; }
+  const record = await idbGetUniverse(id);
+  if(!record) return;
+  activeUniverseId = id;
+  currentUniverseMeta = { name: record.name, createdAt: record.createdAt };
+  localStorage.setItem(ACTIVE_KEY, id);
+  applyLoadedData(record);
+  selectedId = null;
+  exitLinkMode();
+  draggingNodeId = null;
+  autoRotate = true;
+  camTarget = {x:0,y:0,z:0};
+  targetCamTarget = {x:0,y:0,z:0};
+  targetDist = 260;
+  rebuildScene();
+  updateUniverseBadge();
+  closeUniverseModal();
+}
+async function createUniverse(name){
+  const id = genUniverseId();
+  const now = Date.now();
+  const record = { id, name: (name||'').trim() || '새 마인드맵', createdAt: now, updatedAt: now, categories:{}, nodes:[], links:[] };
+  await idbPutUniverse(record);
+  await switchUniverse(id);
+  await renderUniverseList();
+}
+async function renameUniverse(id){
+  const record = await idbGetUniverse(id);
+  if(!record) return;
+  const name = prompt('새 이름', record.name);
+  if(!name || !name.trim()) return;
+  record.name = name.trim();
+  await idbPutUniverse(record);
+  if(id===activeUniverseId){ currentUniverseMeta.name = record.name; updateUniverseBadge(); }
+  await renderUniverseList();
+}
+async function removeUniverse(id){
+  if(!confirm('이 유니버스를 삭제할까요? 안에 있는 모든 노드/이미지가 사라집니다.')) return;
+  await idbDeleteUniverse(id);
+  const remaining = await idbAllUniverses();
+  if(id===activeUniverseId){
+    if(remaining.length===0){
+      await createUniverse('기본 마인드맵');
+      return;
+    }
+    await switchUniverse(remaining.sort((a,b)=>b.updatedAt-a.updatedAt)[0].id);
+  }
+  await renderUniverseList();
+}
+async function renderUniverseList(){
+  const list = (await idbAllUniverses()).sort((a,b)=>b.updatedAt-a.updatedAt);
+  const el = document.getElementById('universe-list');
+  el.innerHTML = '';
+  list.forEach(u=>{
+    const row = document.createElement('div');
+    row.className = 'universe-row' + (u.id===activeUniverseId ? ' active' : '');
+    const info = document.createElement('div');
+    info.className = 'universe-row-info';
+    const nameEl = document.createElement('b');
+    nameEl.textContent = u.name;
+    const metaEl = document.createElement('span');
+    metaEl.textContent = (u.nodes||[]).length + '개 노드 · ' + new Date(u.updatedAt).toLocaleDateString();
+    info.appendChild(nameEl); info.appendChild(metaEl);
+    info.addEventListener('click', ()=>switchUniverse(u.id));
+    const renameBtn = document.createElement('button');
+    renameBtn.textContent = '이름변경';
+    renameBtn.addEventListener('click', ev=>{ ev.stopPropagation(); renameUniverse(u.id); });
+    const delBtn = document.createElement('button');
+    delBtn.textContent = '삭제';
+    delBtn.className = 'danger';
+    delBtn.addEventListener('click', ev=>{ ev.stopPropagation(); removeUniverse(u.id); });
+    row.appendChild(info); row.appendChild(renameBtn); row.appendChild(delBtn);
+    el.appendChild(row);
+  });
+}
+async function openUniverseModal(){
+  await renderUniverseList();
+  document.getElementById('universe-overlay').style.display = 'flex';
+}
+function closeUniverseModal(){
+  document.getElementById('universe-overlay').style.display = 'none';
+}
+document.getElementById('universeBadge').addEventListener('click', openUniverseModal);
+document.getElementById('universe-modal-close').addEventListener('click', closeUniverseModal);
+document.getElementById('universe-overlay').addEventListener('click', e=>{ if(e.target.id==='universe-overlay') closeUniverseModal(); });
+document.getElementById('create-universe-btn').addEventListener('click', ()=>{
+  const nameInput = document.getElementById('new-universe-name');
+  createUniverse(nameInput.value);
+  nameInput.value = '';
+});
 
 const dataReady = loadData();
 
@@ -485,7 +688,7 @@ function rebuildScene(){
   refreshViewpoints();
   renderer.render(scene, camera); // matrixWorld를 즉시 갱신해 rAF 이전에도 레이캐스팅이 정확하게 동작하도록 함
 }
-dataReady.then(rebuildScene);
+dataReady.then(()=>{ rebuildScene(); updateUniverseBadge(); });
 
 // ---------- 카메라 컨트롤 (임의 지점 주시 가능) ----------
 let camTheta=0.6, camPhi=1.15, camDist=260;
@@ -656,11 +859,15 @@ function createLink(aId,bId){
 function startLinkMode(){
   if(!selectedId) return;
   linkSourceId = selectedId;
+  // 좁은 화면에서는 정보 패널이 3D 씬을 가려서 연결할 노드를 탭할 수 없으므로 잠깐 숨김
+  // (selectedId/하이라이트는 그대로 유지 — 패널 표시 여부만 분리해서 다룸)
+  infoPanel.classList.remove('show');
   document.getElementById('linkModeBanner').style.display = 'flex';
 }
 function exitLinkMode(){
   linkSourceId = null;
   document.getElementById('linkModeBanner').style.display = 'none';
+  if(selectedId) infoPanel.classList.add('show');
 }
 document.getElementById('linkModeCancel').addEventListener('click', exitLinkMode);
 
