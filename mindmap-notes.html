@@ -300,6 +300,12 @@
     border-radius:6px; padding:9px; font-family:var(--sans); font-size:13px; margin-bottom:12px; resize:vertical;
   }
   #modal textarea { min-height:80px; }
+  .category-suggest {
+    display:none; font-family:var(--mono); font-size:10.5px; color:var(--cyan);
+    background:rgba(111,214,255,0.08); border:1px solid rgba(111,214,255,0.3);
+    border-radius:6px; padding:6px 8px; margin:-6px 0 12px; cursor:pointer;
+  }
+  .category-suggest b { color:var(--steel); }
   .parent-badge {
     font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-bottom:14px;
     padding:8px 10px; border-radius:6px; background:#0a1626; border-left:3px solid var(--panel-border);
@@ -438,6 +444,7 @@
     <label>카테고리</label>
     <input id="m-category" list="cat-list" placeholder="예: 철근콘크리트">
     <datalist id="cat-list"></datalist>
+    <div id="m-category-suggest" class="category-suggest"></div>
     <label>요점 내용</label>
     <textarea id="m-content" placeholder="핵심 내용 정리"></textarea>
     <div class="checkbox-row">
@@ -1554,6 +1561,7 @@ let modalParentId = null;
 function openModal(parentId){
   modalParentId = parentId || null;
   mLabel.value=''; mCategory.value=''; mContent.value=''; mNoParent.checked=false;
+  document.getElementById('m-category-suggest').style.display = 'none';
   const parent = modalParentId ? nodes.find(n=>n.id===modalParentId) : null;
   const badge = document.getElementById('modal-parent-badge');
   if(parent){
@@ -1569,6 +1577,38 @@ function openModal(parentId){
   modalOverlay.style.display = 'flex';
   setTimeout(()=>mLabel.focus(), 50);
 }
+
+// ---------- 카테고리 자동 분류: 기존 노드들의 라벨/내용에서 단어를 뽑아 카테고리별로 학습, 새 입력과 겹치는 단어로 추천 ----------
+function suggestCategory(text){
+  if(!text || !text.trim()) return null;
+  const tokens = [...new Set(text.split(/[\s,.():;·※▶◀\[\]{}~\-\/]+/).map(t=>t.trim()).filter(t=>t.length>=2))];
+  if(tokens.length===0) return null;
+  const corpus = {};
+  nodes.forEach(n=>{
+    if(!n.category) return;
+    corpus[n.category] = (corpus[n.category]||'') + ' ' + n.label + ' ' + (n.content||'');
+  });
+  let best = null, bestMatches = [];
+  Object.keys(corpus).forEach(cat=>{
+    const catText = corpus[cat];
+    const matched = tokens.filter(t=>catText.includes(t));
+    if(matched.length > bestMatches.length){ best = cat; bestMatches = matched; }
+  });
+  return best ? {category:best, matches:bestMatches} : null;
+}
+function updateCategorySuggestion(){
+  const el = document.getElementById('m-category-suggest');
+  const suggestion = suggestCategory(mLabel.value + ' ' + mContent.value);
+  if(suggestion && suggestion.category !== mCategory.value.trim()){
+    el.innerHTML = '💡 추천: <b>'+suggestion.category+'</b> ('+suggestion.matches.slice(0,3).join(', ')+')';
+    el.style.display = 'block';
+    el.onclick = ()=>{ mCategory.value = suggestion.category; el.style.display = 'none'; };
+  } else {
+    el.style.display = 'none';
+  }
+}
+mLabel.addEventListener('input', updateCategorySuggestion);
+mContent.addEventListener('input', updateCategorySuggestion);
 document.getElementById('addBtn').addEventListener('click', ()=>openModal(selectedId));
 document.getElementById('m-cancel').addEventListener('click', ()=>modalOverlay.style.display='none');
 modalOverlay.addEventListener('click', e=>{ if(e.target===modalOverlay) modalOverlay.style.display='none'; });
