@@ -57,6 +57,35 @@
     background:var(--panel); border:1px solid var(--panel-border); color:var(--text-dim);
     font-family:var(--mono); font-size:10px; padding:4px 10px; border-radius:12px; cursor:pointer;
   }
+  #problemListBtn {
+    pointer-events:auto; display:inline-block; margin-top:6px; margin-left:6px;
+    background:var(--panel); border:1px solid var(--panel-border); color:var(--cyan);
+    font-family:var(--mono); font-size:10px; padding:4px 10px; border-radius:12px; cursor:pointer;
+  }
+  #problem-list-overlay {
+    position:fixed; inset:0; z-index:24; display:none; flex-direction:column;
+    background:rgba(5,10,18,0.97);
+  }
+  #problem-list-box { display:flex; gap:8px; padding:16px; align-items:center; }
+  #problem-list-title { flex:1; font-family:var(--mono); font-size:12px; color:var(--cyan); }
+  #problem-list-close {
+    background:var(--panel); border:1px solid var(--panel-border); color:var(--text-dim);
+    width:36px; height:36px; border-radius:8px; cursor:pointer; font-size:18px; flex-shrink:0;
+  }
+  #problem-list-items { flex:1; overflow-y:auto; padding:0 16px 16px; }
+  .plist-row {
+    display:flex; align-items:center; gap:10px; padding:12px; border-radius:8px; margin-bottom:6px;
+    background:var(--panel); border:1px solid var(--panel-border); cursor:pointer;
+  }
+  .plist-meta { font-family:var(--mono); font-size:10px; color:var(--steel); flex-shrink:0; width:64px; }
+  .plist-body { flex:1; min-width:0; }
+  .plist-snippet { font-size:12.5px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .plist-nodes { font-family:var(--mono); font-size:9.5px; color:var(--text-dim); margin-top:2px; }
+  #problem-list-empty { font-family:var(--mono); font-size:11px; color:var(--text-dim); text-align:center; padding:30px; }
+
+  #ip-unpin {
+    width:100%; margin-bottom:8px; background:rgba(255,149,82,0.1); color:var(--steel); border-color:var(--steel);
+  }
 
   #search-overlay {
     position:fixed; inset:0; z-index:24; display:none; flex-direction:column;
@@ -423,6 +452,7 @@
   <button id="universeBadge">유니버스: <span id="universe-name">-</span> ▾</button>
   <button id="reviewBtn">🗂 복습 (<span id="review-count">0</span>)</button>
   <button id="searchBtn">🔍 검색</button>
+  <button id="problemListBtn">📇 문제 (<span id="problem-list-count">0</span>)</button>
   <div class="sub">NODES: <span id="node-count">0</span> / LINKS: <span id="link-count">0</span></div>
   <div class="sub2">드래그: 회전 · 휠/핀치: 확대 · 노드 드래그: 이동 · 탭: 선택</div>
 </div>
@@ -462,10 +492,19 @@
   <div id="search-results"></div>
 </div>
 
+<div id="problem-list-overlay">
+  <div id="problem-list-box">
+    <span id="problem-list-title">문제 카드 전체 목록</span>
+    <button id="problem-list-close">×</button>
+  </div>
+  <div id="problem-list-items"></div>
+</div>
+
 <div id="info-panel">
   <div class="cat" id="ip-cat">CATEGORY</div>
   <input id="ip-label" type="text" placeholder="개념명">
   <textarea id="ip-content" placeholder="요점 내용을 적어두세요"></textarea>
+  <button id="ip-unpin" style="display:none">📌 위치 고정됨 (탭해서 해제)</button>
   <div id="ip-images"></div>
   <input type="file" id="ip-image-input" accept="image/*,application/pdf" multiple style="display:none">
   <button id="ip-addimage">+ 파일 추가 (이미지/PDF)</button>
@@ -1055,6 +1094,7 @@ function rebuildScene(){
   refreshLegend();
   refreshViewpoints();
   updateReviewCount();
+  updateProblemListCount();
   renderer.render(scene, camera); // matrixWorld를 즉시 갱신해 rAF 이전에도 레이캐스팅이 정확하게 동작하도록 함
 }
 dataReady.then(()=>{ rebuildScene(); updateUniverseBadge(); });
@@ -1789,6 +1829,75 @@ document.getElementById('searchBtn').addEventListener('click', openSearch);
 document.getElementById('search-close').addEventListener('click', closeSearch);
 document.getElementById('search-input').addEventListener('input', e=>renderSearchResults(e.target.value));
 
+// ---------- 문제 카드 전체 목록 ----------
+function updateProblemListCount(){
+  document.getElementById('problem-list-count').textContent = problems.length;
+}
+function openProblemList(){
+  document.getElementById('problem-list-overlay').style.display = 'flex';
+  renderProblemListItems();
+}
+function closeProblemList(){
+  document.getElementById('problem-list-overlay').style.display = 'none';
+}
+function renderProblemListItems(){
+  const el = document.getElementById('problem-list-items');
+  el.innerHTML = '';
+  if(problems.length===0){
+    el.innerHTML = '<div id="problem-list-empty">아직 문제 카드가 없어요.<br>노드에서 사진을 인식하고 "문제 카드로 저장"해보세요.</div>';
+    return;
+  }
+  const sorted = problems.slice().sort((a,b)=>{
+    const ra = parseInt(a.examRound)||0, rb = parseInt(b.examRound)||0;
+    if(ra!==rb) return rb-ra;
+    return (parseInt(a.examNumber)||0)-(parseInt(b.examNumber)||0);
+  });
+  sorted.forEach(p=>{
+    const row = document.createElement('div');
+    row.className = 'plist-row';
+    const meta = document.createElement('div');
+    meta.className = 'plist-meta';
+    const metaBits = [];
+    if(p.examRound) metaBits.push(p.examRound+'회');
+    if(p.examNumber) metaBits.push(p.examNumber+'번');
+    meta.textContent = metaBits.length ? metaBits.join(' ') : '-';
+    const body = document.createElement('div');
+    body.className = 'plist-body';
+    const snippet = document.createElement('div');
+    snippet.className = 'plist-snippet';
+    snippet.textContent = (p.ocrText||'').replace(/\n/g,' ') || '(내용 없음)';
+    const nodesLine = document.createElement('div');
+    nodesLine.className = 'plist-nodes';
+    const linkedLabels = p.nodeIds.map(id=>{ const n = nodes.find(x=>x.id===id); return n ? n.label : null; }).filter(Boolean);
+    nodesLine.textContent = linkedLabels.length ? '연결: '+linkedLabels.join(', ') : '연결된 개념 없음';
+    body.appendChild(snippet); body.appendChild(nodesLine);
+    row.appendChild(meta); row.appendChild(body);
+    row.addEventListener('click', ()=>{
+      closeProblemList();
+      const firstNodeId = p.nodeIds[0];
+      if(firstNodeId && nodes.find(n=>n.id===firstNodeId)){
+        const n = nodes.find(x=>x.id===firstNodeId);
+        selectNode(n.id, true);
+        focusNode(n);
+      }
+      openProblemDetail(p);
+    });
+    el.appendChild(row);
+  });
+}
+document.getElementById('problemListBtn').addEventListener('click', openProblemList);
+document.getElementById('problem-list-close').addEventListener('click', closeProblemList);
+
+// ---------- 노드 고정 해제 ----------
+document.getElementById('ip-unpin').addEventListener('click', ()=>{
+  const n = nodes.find(x=>x.id===selectedId);
+  if(!n) return;
+  n.fixed = false;
+  resettle(60);
+  saveData();
+  rebuildScene();
+});
+
 // 뷰어 창 드래그 이동 (헤더를 잡고 이동)
 (function(){
   const header = document.getElementById('fv-header');
@@ -1845,6 +1954,7 @@ function selectNode(id, silent){
     renderImages(n);
     renderProblems(n);
     renderFlashcards(n);
+    document.getElementById('ip-unpin').style.display = n.fixed ? 'block' : 'none';
     infoPanel.classList.add('show');
     if(!silent && n.files && n.files.length) openViewer(n.files, 0);
     else if(!silent) closeViewer();
