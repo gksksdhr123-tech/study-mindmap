@@ -52,6 +52,35 @@
     background:var(--panel); border:1px solid var(--panel-border); color:var(--steel);
     font-family:var(--mono); font-size:10px; padding:4px 10px; border-radius:12px; cursor:pointer;
   }
+  #searchBtn {
+    pointer-events:auto; display:inline-block; margin-top:6px; margin-left:6px;
+    background:var(--panel); border:1px solid var(--panel-border); color:var(--text-dim);
+    font-family:var(--mono); font-size:10px; padding:4px 10px; border-radius:12px; cursor:pointer;
+  }
+
+  #search-overlay {
+    position:fixed; inset:0; z-index:24; display:none; flex-direction:column;
+    background:rgba(5,10,18,0.97);
+  }
+  #search-box { display:flex; gap:8px; padding:16px; }
+  #search-input {
+    flex:1; background:var(--panel); border:1px solid var(--panel-border); color:var(--text);
+    border-radius:8px; padding:12px; font-family:var(--sans); font-size:14px;
+  }
+  #search-close {
+    background:var(--panel); border:1px solid var(--panel-border); color:var(--text-dim);
+    width:44px; border-radius:8px; cursor:pointer; font-size:18px; flex-shrink:0;
+  }
+  #search-results { flex:1; overflow-y:auto; padding:0 16px 16px; }
+  .search-result-row {
+    display:flex; align-items:center; gap:10px; padding:12px; border-radius:8px; margin-bottom:6px;
+    background:var(--panel); border:1px solid var(--panel-border); cursor:pointer;
+  }
+  .search-result-cat { font-family:var(--mono); font-size:9px; padding:3px 8px; border-radius:10px; flex-shrink:0; white-space:nowrap; }
+  .search-result-body { flex:1; min-width:0; }
+  .search-result-label { font-size:14px; color:var(--text); }
+  .search-result-snippet { font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:2px; }
+  #search-empty { font-family:var(--mono); font-size:11px; color:var(--text-dim); text-align:center; padding:30px; }
 
   #universe-overlay {
     position:fixed; inset:0; z-index:25; display:none;
@@ -393,6 +422,7 @@
   <div class="title">요점정리 마인드맵</div>
   <button id="universeBadge">유니버스: <span id="universe-name">-</span> ▾</button>
   <button id="reviewBtn">🗂 복습 (<span id="review-count">0</span>)</button>
+  <button id="searchBtn">🔍 검색</button>
   <div class="sub">NODES: <span id="node-count">0</span> / LINKS: <span id="link-count">0</span></div>
   <div class="sub2">드래그: 회전 · 휠/핀치: 확대 · 노드 드래그: 이동 · 탭: 선택</div>
 </div>
@@ -422,6 +452,14 @@
 <div id="linkModeBanner">
   연결할 노드를 탭하세요
   <button id="linkModeCancel">취소</button>
+</div>
+
+<div id="search-overlay">
+  <div id="search-box">
+    <input id="search-input" type="text" placeholder="개념명, 내용으로 검색...">
+    <button id="search-close">×</button>
+  </div>
+  <div id="search-results"></div>
 </div>
 
 <div id="info-panel">
@@ -1693,6 +1731,63 @@ document.getElementById('review-know').addEventListener('click', ()=>advanceRevi
 document.getElementById('review-dontknow').addEventListener('click', ()=>advanceReview(false));
 document.getElementById('reviewBtn').addEventListener('click', openReviewMode);
 document.getElementById('review-close').addEventListener('click', closeReviewMode);
+
+// ---------- 검색 ----------
+function focusNode(n){
+  targetCamTarget = {x:n.x, y:n.y, z:n.z};
+  targetDist = 80;
+  autoRotate = false;
+}
+function openSearch(){
+  document.getElementById('search-overlay').style.display = 'flex';
+  const input = document.getElementById('search-input');
+  input.value = '';
+  renderSearchResults('');
+  setTimeout(()=>input.focus(), 50);
+}
+function closeSearch(){
+  document.getElementById('search-overlay').style.display = 'none';
+}
+function renderSearchResults(query){
+  const el = document.getElementById('search-results');
+  el.innerHTML = '';
+  const q = query.trim().toLowerCase();
+  if(!q) return;
+  const matches = nodes.filter(n=>n.label.toLowerCase().includes(q) || (n.content||'').toLowerCase().includes(q));
+  if(matches.length===0){
+    el.innerHTML = '<div id="search-empty">일치하는 개념이 없어요</div>';
+    return;
+  }
+  matches.forEach(n=>{
+    const row = document.createElement('div');
+    row.className = 'search-result-row';
+    const cat = document.createElement('span');
+    cat.className = 'search-result-cat';
+    const c = colorFor(n.category);
+    cat.textContent = n.category;
+    cat.style.color = hex(c);
+    cat.style.background = hex(c)+'26';
+    const body = document.createElement('div');
+    body.className = 'search-result-body';
+    const labelEl = document.createElement('div');
+    labelEl.className = 'search-result-label';
+    labelEl.textContent = n.label;
+    const snippet = document.createElement('div');
+    snippet.className = 'search-result-snippet';
+    snippet.textContent = (n.content||'').replace(/\n/g,' ');
+    body.appendChild(labelEl); body.appendChild(snippet);
+    row.appendChild(cat); row.appendChild(body);
+    row.addEventListener('click', ()=>{
+      closeSearch();
+      selectNode(n.id);
+      focusNode(n);
+    });
+    el.appendChild(row);
+  });
+}
+document.getElementById('searchBtn').addEventListener('click', openSearch);
+document.getElementById('search-close').addEventListener('click', closeSearch);
+document.getElementById('search-input').addEventListener('input', e=>renderSearchResults(e.target.value));
 
 // 뷰어 창 드래그 이동 (헤더를 잡고 이동)
 (function(){
