@@ -62,6 +62,59 @@
     background:var(--panel); border:1px solid var(--panel-border); color:var(--cyan);
     font-family:var(--mono); font-size:10px; padding:4px 10px; border-radius:12px; cursor:pointer;
   }
+  #videoTabBtn {
+    pointer-events:auto; display:inline-block; margin-top:6px; margin-left:6px;
+    background:var(--panel); border:1px solid var(--panel-border); color:var(--steel);
+    font-family:var(--mono); font-size:10px; padding:4px 10px; border-radius:12px; cursor:pointer;
+  }
+
+  #video-overlay { position:fixed; inset:0; z-index:31; display:none; background:#000; }
+  #video-picker {
+    position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px; color:var(--text-dim); font-family:var(--mono); font-size:12px; text-align:center; padding:20px;
+  }
+  #video-picker button {
+    padding:12px 22px; background:var(--panel); border:1px solid var(--panel-border);
+    color:var(--steel); font-family:var(--mono); font-size:13px; border-radius:8px; cursor:pointer;
+  }
+  #video-el { position:fixed; inset:0; width:100%; height:100%; object-fit:contain; background:#000; display:none; }
+  #video-taplayer { position:fixed; inset:0; z-index:2; display:none; }
+  #video-topbar {
+    position:fixed; top:0; left:0; right:0; z-index:5; padding:14px;
+    display:none; justify-content:space-between; align-items:center;
+    background:linear-gradient(to bottom, rgba(0,0,0,0.85), transparent);
+    transition:opacity .2s ease;
+  }
+  #video-topbar.hidden-ui { opacity:0; pointer-events:none; }
+  #video-name { font-family:var(--mono); font-size:11px; color:var(--text-dim); max-width:55vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #video-topbar button {
+    background:var(--panel); border:1px solid var(--panel-border); color:var(--text-dim);
+    width:38px; height:38px; border-radius:50%; font-size:14px; cursor:pointer;
+  }
+  #video-controls {
+    position:fixed; left:0; right:0; bottom:0; z-index:5; padding:10px 14px 18px;
+    background:linear-gradient(to top, rgba(0,0,0,0.9), transparent);
+    display:none; flex-direction:column; gap:10px; transition:opacity .2s ease;
+  }
+  #video-controls.hidden-ui { opacity:0; pointer-events:none; }
+  #video-seek-row { display:flex; align-items:center; gap:10px; font-family:var(--mono); font-size:11px; color:var(--text-dim); }
+  #video-seek {
+    flex:1; height:4px; -webkit-appearance:none; appearance:none; background:var(--panel-border); border-radius:2px; outline:none;
+  }
+  #video-seek::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:var(--steel); cursor:pointer; }
+  #video-btn-row { display:flex; align-items:center; justify-content:center; gap:20px; }
+  #video-btn-row button {
+    background:var(--panel); border:1px solid var(--panel-border); color:var(--text);
+    width:46px; height:46px; border-radius:50%; font-size:15px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #video-btn-row button.wide { width:auto; padding:0 14px; border-radius:22px; font-family:var(--mono); font-size:11.5px; color:var(--steel); }
+  #video-play { width:56px; height:56px; font-size:19px; color:var(--steel); border-color:var(--steel); }
+  #video-unlock {
+    position:fixed; bottom:20px; right:20px; z-index:6; display:none;
+    width:44px; height:44px; border-radius:50%; background:var(--panel); border:1px solid var(--panel-border);
+    color:var(--text-dim); font-size:15px;
+  }
   #problem-list-overlay {
     position:fixed; inset:0; z-index:24; display:none; flex-direction:column;
     background:rgba(5,10,18,0.97);
@@ -453,6 +506,7 @@
   <button id="reviewBtn">🗂 복습 (<span id="review-count">0</span>)</button>
   <button id="searchBtn">🔍 검색</button>
   <button id="problemListBtn">📇 문제 (<span id="problem-list-count">0</span>)</button>
+  <button id="videoTabBtn">🎬 영상</button>
   <div class="sub">NODES: <span id="node-count">0</span> / LINKS: <span id="link-count">0</span></div>
   <div class="sub2">드래그: 회전 · 휠/핀치: 확대 · 노드 드래그: 이동 · 탭: 선택</div>
 </div>
@@ -498,6 +552,38 @@
     <button id="problem-list-close">×</button>
   </div>
   <div id="problem-list-items"></div>
+</div>
+
+<div id="video-overlay">
+  <div id="video-picker">
+    강의 영상 폴더에서 파일을 선택하세요 (기기 기본 파일 선택창이 열려요)<br>
+    <button id="video-pick-btn">영상 선택</button>
+    <input type="file" id="video-file-input" accept="video/*" style="display:none">
+  </div>
+  <video id="video-el" playsinline></video>
+  <div id="video-taplayer"></div>
+  <div id="video-topbar">
+    <span id="video-name"></span>
+    <div style="display:flex; gap:8px;">
+      <button id="video-lock">🔓</button>
+      <button id="video-exit">×</button>
+    </div>
+  </div>
+  <button id="video-unlock">🔒</button>
+  <div id="video-controls">
+    <div id="video-seek-row">
+      <span id="video-cur">00:00</span>
+      <input type="range" id="video-seek" min="0" max="100" value="0" step="0.1">
+      <span id="video-dur">00:00</span>
+    </div>
+    <div id="video-btn-row">
+      <button id="video-speed" class="wide">1.0x</button>
+      <button id="video-back">-10</button>
+      <button id="video-play">▶</button>
+      <button id="video-fwd">+10</button>
+      <button id="video-lock2" class="wide">잠금</button>
+    </div>
+  </div>
 </div>
 
 <div id="info-panel">
@@ -1897,6 +1983,101 @@ document.getElementById('ip-unpin').addEventListener('click', ()=>{
   saveData();
   rebuildScene();
 });
+
+// ---------- 영상 재생 탭 (기기 파일 선택창으로 로컬 영상 재생, 커스텀 컨트롤) ----------
+(function(){
+  const overlay = document.getElementById('video-overlay');
+  const picker = document.getElementById('video-picker');
+  const fileInput = document.getElementById('video-file-input');
+  const video = document.getElementById('video-el');
+  const tapLayer = document.getElementById('video-taplayer');
+  const topbar = document.getElementById('video-topbar');
+  const controls = document.getElementById('video-controls');
+  const seek = document.getElementById('video-seek');
+  const curEl = document.getElementById('video-cur');
+  const durEl = document.getElementById('video-dur');
+  const playBtn = document.getElementById('video-play');
+  const speedBtn = document.getElementById('video-speed');
+  const nameEl = document.getElementById('video-name');
+  const unlockBtn = document.getElementById('video-unlock');
+  const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+  let speedIdx = 2, isLocked = false, uiTimer = null, seeking = false, fileKey = null;
+
+  function fmt(s){ if(!isFinite(s)) return '00:00'; const m=Math.floor(s/60), r=Math.floor(s%60); return String(m).padStart(2,'0')+':'+String(r).padStart(2,'0'); }
+
+  function openVideoTab(){ overlay.style.display = 'block'; }
+  function closeVideoTab(){
+    overlay.style.display = 'none';
+    video.pause();
+  }
+  document.getElementById('videoTabBtn').addEventListener('click', openVideoTab);
+  document.getElementById('video-exit').addEventListener('click', closeVideoTab);
+
+  document.getElementById('video-pick-btn').addEventListener('click', ()=>fileInput.click());
+  fileInput.addEventListener('change', e=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    video.src = URL.createObjectURL(file);
+    video.style.display = 'block';
+    tapLayer.style.display = 'block';
+    topbar.style.display = 'flex';
+    controls.style.display = 'flex';
+    picker.style.display = 'none';
+    nameEl.textContent = file.name;
+    fileKey = 'video_pos_' + file.name + '_' + file.size;
+    const saved = localStorage.getItem(fileKey);
+    if(saved){
+      const pos = parseFloat(saved);
+      video.addEventListener('loadedmetadata', ()=>{ video.currentTime = pos || 0; }, {once:true});
+    }
+    video.play();
+  });
+
+  function togglePlay(){ if(video.paused) video.play(); else video.pause(); }
+  playBtn.addEventListener('click', togglePlay);
+  tapLayer.addEventListener('click', ()=>{ if(isLocked) return; showUI(); togglePlay(); });
+  video.addEventListener('play', ()=>{ playBtn.textContent='⏸'; showUI(); });
+  video.addEventListener('pause', ()=> playBtn.textContent='▶');
+
+  document.getElementById('video-back').addEventListener('click', e=>{ e.stopPropagation(); video.currentTime = Math.max(0, video.currentTime-10); showUI(); });
+  document.getElementById('video-fwd').addEventListener('click', e=>{ e.stopPropagation(); video.currentTime = Math.min(video.duration, video.currentTime+10); showUI(); });
+  speedBtn.addEventListener('click', e=>{
+    e.stopPropagation();
+    speedIdx = (speedIdx+1) % SPEEDS.length;
+    video.playbackRate = SPEEDS[speedIdx];
+    speedBtn.textContent = SPEEDS[speedIdx].toFixed(2).replace(/\.?0+$/,'') + 'x';
+    showUI();
+  });
+
+  video.addEventListener('timeupdate', ()=>{
+    if(!seeking && video.duration){
+      seek.value = (video.currentTime/video.duration)*100;
+      curEl.textContent = fmt(video.currentTime);
+      durEl.textContent = fmt(video.duration);
+    }
+    if(fileKey && Math.floor(video.currentTime)%3===0) localStorage.setItem(fileKey, video.currentTime);
+  });
+  seek.addEventListener('input', ()=>{ seeking = true; curEl.textContent = fmt((seek.value/100)*video.duration); });
+  seek.addEventListener('change', ()=>{ video.currentTime = (seek.value/100)*video.duration; seeking = false; });
+
+  function setLocked(v){
+    isLocked = v;
+    controls.style.display = v ? 'none' : 'flex';
+    topbar.style.display = v ? 'none' : 'flex';
+    unlockBtn.style.display = v ? 'block' : 'none';
+    if(!v) showUI();
+  }
+  document.getElementById('video-lock').addEventListener('click', e=>{ e.stopPropagation(); setLocked(true); });
+  document.getElementById('video-lock2').addEventListener('click', e=>{ e.stopPropagation(); setLocked(true); });
+  unlockBtn.addEventListener('click', e=>{ e.stopPropagation(); setLocked(false); });
+
+  function showUI(){
+    controls.classList.remove('hidden-ui');
+    topbar.classList.remove('hidden-ui');
+    clearTimeout(uiTimer);
+    uiTimer = setTimeout(()=>{ if(!video.paused){ controls.classList.add('hidden-ui'); topbar.classList.add('hidden-ui'); } }, 3000);
+  }
+})();
 
 // 뷰어 창 드래그 이동 (헤더를 잡고 이동)
 (function(){
