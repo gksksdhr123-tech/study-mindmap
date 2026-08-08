@@ -88,6 +88,11 @@
     width:100%; padding:10px; border-radius:8px; border:1px solid var(--panel-border);
     background:#0a1626; color:var(--text-dim); font-family:var(--mono); font-size:12px; cursor:pointer;
   }
+  .universe-backup-row { display:flex; gap:6px; margin-bottom:8px; }
+  .universe-backup-row button {
+    flex:1; padding:9px 6px; border-radius:8px; border:1px solid var(--panel-border);
+    background:#0a1626; color:var(--cyan); font-family:var(--mono); font-size:11px; cursor:pointer;
+  }
 
   #emptyHint {
     position:fixed; inset:0; display:none; align-items:center; justify-content:center;
@@ -399,6 +404,11 @@
     <div class="universe-new-row">
       <input id="new-universe-name" type="text" placeholder="새 유니버스 이름">
       <button id="create-universe-btn">+ 만들기</button>
+    </div>
+    <div class="universe-backup-row">
+      <button id="export-backup-btn">⬇ 전체 백업 (JSON)</button>
+      <button id="import-backup-btn">⬆ 백업 불러오기</button>
+      <input type="file" id="import-backup-input" accept="application/json" style="display:none">
     </div>
     <button id="universe-modal-close">닫기</button>
   </div>
@@ -816,6 +826,55 @@ document.getElementById('create-universe-btn').addEventListener('click', ()=>{
   const nameInput = document.getElementById('new-universe-name');
   createUniverse(nameInput.value);
   nameInput.value = '';
+});
+
+// ---------- 백업(전체 유니버스 내보내기/가져오기) ----------
+async function exportBackup(){
+  const universes = await idbAllUniverses();
+  const backup = { app:'study-mindmap', exportedAt: Date.now(), universes };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'mindmap-backup-' + new Date().toISOString().slice(0,10) + '.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+async function importBackup(file){
+  let data;
+  try{
+    data = JSON.parse(await file.text());
+  }catch(e){
+    alert('올바른 백업 파일이 아니에요 (JSON 파싱 실패).');
+    return;
+  }
+  if(!data || !Array.isArray(data.universes) || data.universes.length===0){
+    alert('올바른 백업 파일이 아니에요.');
+    return;
+  }
+  // 기존 유니버스는 절대 덮어쓰지 않고, 전부 새 id로 "추가"만 함 (실수로 덮어써서 데이터 잃는 일이 없도록)
+  const existing = await idbAllUniverses();
+  const existingNames = new Set(existing.map(u=>u.name));
+  let count = 0;
+  for(const u of data.universes){
+    let name = u.name || '가져온 마인드맵';
+    if(existingNames.has(name)) name = name + ' (가져옴)';
+    existingNames.add(name);
+    const now = Date.now();
+    await idbPutUniverse({ ...u, id: genUniverseId(), name, createdAt: now, updatedAt: now });
+    count++;
+  }
+  alert(count + '개의 유니버스를 새로 가져왔어요. 목록에서 확인해보세요.');
+  await renderUniverseList();
+}
+document.getElementById('export-backup-btn').addEventListener('click', exportBackup);
+document.getElementById('import-backup-btn').addEventListener('click', ()=>document.getElementById('import-backup-input').click());
+document.getElementById('import-backup-input').addEventListener('change', async e=>{
+  const file = e.target.files[0];
+  e.target.value = '';
+  if(file) await importBackup(file);
 });
 
 const dataReady = loadData();
