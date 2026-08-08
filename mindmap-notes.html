@@ -557,6 +557,7 @@
 <div id="video-overlay">
   <div id="video-picker">
     강의 영상 폴더에서 파일을 선택하세요 (기기 기본 파일 선택창이 열려요)<br>
+    <div id="video-error-msg" style="display:none; color:#ff9b9b; margin-top:6px;"></div>
     <button id="video-pick-btn">영상 선택</button>
     <input type="file" id="video-file-input" accept="video/*" style="display:none">
   </div>
@@ -2013,10 +2014,12 @@ document.getElementById('ip-unpin').addEventListener('click', ()=>{
   document.getElementById('videoTabBtn').addEventListener('click', openVideoTab);
   document.getElementById('video-exit').addEventListener('click', closeVideoTab);
 
+  const errorMsg = document.getElementById('video-error-msg');
   document.getElementById('video-pick-btn').addEventListener('click', ()=>fileInput.click());
   fileInput.addEventListener('change', e=>{
     const file = e.target.files[0];
     if(!file) return;
+    errorMsg.style.display = 'none';
     video.src = URL.createObjectURL(file);
     video.style.display = 'block';
     tapLayer.style.display = 'block';
@@ -2031,6 +2034,19 @@ document.getElementById('ip-unpin').addEventListener('click', ()=>{
       video.addEventListener('loadedmetadata', ()=>{ video.currentTime = pos || 0; }, {once:true});
     }
     video.play();
+  });
+  // USB를 뺐다 꽂으면 이전에 골랐던 파일의 연결(blob URL)이 끊겨서 재생이 실패함 —
+  // 조용히 멈추는 대신 원인을 알려주고 바로 다시 선택할 수 있게 선택 화면으로 돌아감
+  video.addEventListener('error', ()=>{
+    if(!video.src) return;
+    video.style.display = 'none';
+    tapLayer.style.display = 'none';
+    topbar.style.display = 'none';
+    controls.style.display = 'none';
+    setLocked(false);
+    picker.style.display = 'flex';
+    errorMsg.style.display = 'block';
+    errorMsg.textContent = '재생할 수 없어요. USB를 뺐다 꽂았다면 연결이 끊긴 것이니, 위 버튼으로 영상을 다시 선택해주세요.';
   });
 
   function togglePlay(){ if(video.paused) video.play(); else video.pause(); }
