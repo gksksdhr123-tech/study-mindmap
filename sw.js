@@ -1,5 +1,8 @@
-const CACHE_NAME = 'study-mindmap-v13';
-const THREE_JS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+const CACHE_NAME = 'study-mindmap-v14';
+const CDN_URLS = [
+  'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js',
+];
 const SAME_ORIGIN_URLS = [
   './mindmap-notes.html',
   './manifest.json',
@@ -10,11 +13,13 @@ self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
     await cache.addAll(SAME_ORIGIN_URLS);
-    try {
-      const res = await fetch(new Request(THREE_JS_URL, { mode: 'no-cors' }));
-      await cache.put(THREE_JS_URL, res);
-    } catch (e) {
-      // 오프라인 상태에서 최초 설치되면 CDN 캐싱은 실패할 수 있음 — 다음 온라인 방문 때 재시도됨
+    for (const url of CDN_URLS) {
+      try {
+        const res = await fetch(new Request(url, { mode: 'no-cors' }));
+        await cache.put(url, res);
+      } catch (e) {
+        // 오프라인 상태에서 최초 설치되면 CDN 캐싱은 실패할 수 있음 — 다음 온라인 방문 때 재시도됨
+      }
     }
     self.skipWaiting();
   })());

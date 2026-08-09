@@ -8,6 +8,7 @@
 <meta name="theme-color" content="#070d1c">
 <link rel="apple-touch-icon" href="icon.svg">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
   :root{
     --bg: #070d1c;
@@ -67,6 +68,20 @@
     background:var(--panel); border:1px solid var(--panel-border); color:var(--steel);
     font-family:var(--mono); font-size:10px; padding:4px 10px; border-radius:12px; cursor:pointer;
   }
+  #loginBtn {
+    pointer-events:auto; display:inline-block; margin-top:6px; margin-left:6px;
+    background:var(--panel); border:1px solid var(--panel-border); color:var(--text-dim);
+    font-family:var(--mono); font-size:10px; padding:4px 10px; border-radius:12px; cursor:pointer;
+    max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom;
+  }
+  #loginBtn.logged-in { color:var(--cyan); border-color:var(--cyan); }
+  #syncDot {
+    display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:5px;
+    background:var(--text-dim); vertical-align:middle;
+  }
+  #syncDot.ok { background:var(--cyan); }
+  #syncDot.busy { background:var(--steel); }
+  #syncDot.err { background:#ff6b6b; }
 
   #video-overlay { position:fixed; inset:0; z-index:31; display:none; background:#000; }
   #video-picker {
@@ -513,6 +528,7 @@
   <button id="searchBtn">🔍 검색</button>
   <button id="problemListBtn">📇 문제 (<span id="problem-list-count">0</span>)</button>
   <button id="videoTabBtn">🎬 영상</button>
+  <button id="loginBtn"><span id="syncDot"></span><span id="loginBtnText">로그인</span></button>
   <div class="sub">NODES: <span id="node-count">0</span> / LINKS: <span id="link-count">0</span></div>
   <div class="sub2">드래그: 회전 · 휠/핀치: 확대 · 노드 드래그: 이동 · 탭: 선택</div>
 </div>
@@ -892,6 +908,7 @@ async function saveData(){
   }catch(e){
     alert('저장에 실패했습니다: ' + e.message);
   }
+  if(syncEnabled()) pushUniverseToCloud(data);
 }
 function colorFor(cat){
   if(!categories[cat]){
@@ -924,12 +941,14 @@ async function switchUniverse(id){
   rebuildScene();
   updateUniverseBadge();
   closeUniverseModal();
+  if(syncEnabled()) reconcileUniverse(id).then(()=>renderUniverseList());
 }
 async function createUniverse(name){
   const id = genUniverseId();
   const now = Date.now();
   const record = { id, name: (name||'').trim() || '새 마인드맵', createdAt: now, updatedAt: now, categories:{}, nodes:[], links:[] };
   await idbPutUniverse(record);
+  if(syncEnabled()) pushUniverseToCloud(record);
   await switchUniverse(id);
   await renderUniverseList();
 }
@@ -939,13 +958,16 @@ async function renameUniverse(id){
   const name = prompt('새 이름', record.name);
   if(!name || !name.trim()) return;
   record.name = name.trim();
+  record.updatedAt = Date.now();
   await idbPutUniverse(record);
   if(id===activeUniverseId){ currentUniverseMeta.name = record.name; updateUniverseBadge(); }
+  if(syncEnabled()) pushUniverseToCloud(record);
   await renderUniverseList();
 }
 async function removeUniverse(id){
   if(!confirm('이 유니버스를 삭제할까요? 안에 있는 모든 노드/이미지가 사라집니다.')) return;
   await idbDeleteUniverse(id);
+  if(syncEnabled()) supabaseClient.from('universes').delete().eq('id', id).then(()=>{}).catch(e=>console.warn('cloud delete failed', e));
   const remaining = await idbAllUniverses();
   if(id===activeUniverseId){
     if(remaining.length===0){
@@ -1047,7 +1069,172 @@ document.getElementById('import-backup-input').addEventListener('change', async 
   if(file) await importBackup(file);
 });
 
-const dataReady = loadData();
+// ---------- 클라우드 동기화 (Supabase, 구조+텍스트만 — 이미지/PDF는 기기별로만 남음) ----------
+// 로그인 안 해도 지금까지처럼 100% 로컬로 동작함. 로그인하면 기존 로컬 유니버스가 자동으로
+// 클라우드에 올라가고, 다른 기기에서 같은 계정으로 로그인하면 그걸 받아옴.
+const SUPABASE_URL = 'https://uxyyvxxwdlrcrsmovezx.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV4eXl2eHh3ZGxyY3JzbW92ZXp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyNDQ2NjIsImV4cCI6MjEwMTgyMDY2Mn0.-LJLspaHCD11Wi8RVz1t_LHJyGiMMiZQkmSQROw4I30';
+let supabaseClient = null;
+let currentUser = null;
+function syncEnabled(){ return !!currentUser && navigator.onLine; }
+
+function setSyncStatus(state){ // '' | 'busy' | 'ok' | 'err'
+  document.getElementById('syncDot').className = 'sync' + (state ? ' '+state : '');
+}
+function updateLoginBtn(){
+  const btn = document.getElementById('loginBtn');
+  const text = document.getElementById('loginBtnText');
+  if(currentUser){
+    btn.classList.add('logged-in');
+    text.textContent = currentUser.user_metadata?.user_name || currentUser.user_metadata?.preferred_username || '로그인됨';
+  } else {
+    btn.classList.remove('logged-in');
+    text.textContent = '로그인';
+    setSyncStatus('');
+  }
+}
+
+// 클라우드로 보내기 전에 이미지/PDF 바이트(dataUrl)만 제거 — 원본 로컬 객체는 절대 건드리지 않음
+function stripUniverseForCloud(doc){
+  return {
+    categories: doc.categories,
+    nodes: (doc.nodes||[]).map(n=>({...n, files:(n.files||[]).map(f=>({type:f.type, name:f.name}))})),
+    links: doc.links,
+    problems: (doc.problems||[]).map(p=>{ const {imageDataUrl, ...rest} = p; return rest; }),
+    flashcards: doc.flashcards,
+  };
+}
+async function pushUniverseToCloud(doc){
+  if(!syncEnabled()) return;
+  setSyncStatus('busy');
+  try{
+    const { error } = await supabaseClient.from('universes').upsert({
+      id: doc.id,
+      user_id: currentUser.id,
+      name: doc.name,
+      data: stripUniverseForCloud(doc),
+      created_at: new Date(doc.createdAt).toISOString(),
+      updated_at: new Date(doc.updatedAt).toISOString(),
+    });
+    if(error) throw error;
+    setSyncStatus('ok');
+  }catch(e){ console.warn('cloud push failed', e); setSyncStatus('err'); }
+}
+async function pullUniverseFromCloud(id){
+  if(!syncEnabled()) return null;
+  try{
+    const { data, error } = await supabaseClient.from('universes').select('*').eq('id', id).maybeSingle();
+    if(error) throw error;
+    return data;
+  }catch(e){ console.warn('cloud pull failed', e); return null; }
+}
+async function pullAllCloudUniverses(){
+  if(!syncEnabled()) return [];
+  try{
+    const { data, error } = await supabaseClient.from('universes').select('*');
+    if(error) throw error;
+    return data || [];
+  }catch(e){ console.warn('cloud list failed', e); return []; }
+}
+function cloudRowToLocalDoc(row){
+  return {
+    id: row.id, name: row.name,
+    createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at).getTime(),
+    categories: row.data.categories || {},
+    nodes: row.data.nodes || [],
+    links: row.data.links || [],
+    problems: row.data.problems || [],
+    flashcards: row.data.flashcards || [],
+  };
+}
+
+// 열려있는/전환되는 유니버스를 클라우드와 맞춤. last-write-wins인데, 이미지/PDF만은 예외로
+// 로컬에 있던 걸 클라우드 버전에 다시 끼워넣어서(클라우드엔 애초에 없으니) 절대 안 지워지게 함.
+async function reconcileUniverse(id){
+  if(!syncEnabled()) return;
+  const local = await idbGetUniverse(id);
+  const cloudRow = await pullUniverseFromCloud(id);
+  if(!cloudRow) return; // 클라우드에 없음: 다른 기기에서 지웠을 수도 있으니 조용히 둠(자동으로 다시 안 올림)
+  if(!local){
+    // 이 기기에서 처음 보는 유니버스 -> 받아옴 (이미지/PDF는 원래 빠져있는 게 정상)
+    const doc = cloudRowToLocalDoc(cloudRow);
+    await idbPutUniverse(doc);
+    if(id===activeUniverseId){ applyLoadedData(doc); rebuildScene(); }
+    return;
+  }
+  const cloudUpdated = new Date(cloudRow.updated_at).getTime();
+  if(cloudUpdated > local.updatedAt){
+    const incoming = cloudRowToLocalDoc(cloudRow);
+    const localFilesByNode = {}; (local.nodes||[]).forEach(n=>{ if(n.files && n.files.length) localFilesByNode[n.id]=n.files; });
+    const localImgByProblem = {}; (local.problems||[]).forEach(p=>{ if(p.imageDataUrl) localImgByProblem[p.id]=p.imageDataUrl; });
+    incoming.nodes = incoming.nodes.map(n=> localFilesByNode[n.id] ? {...n, files: localFilesByNode[n.id]} : n);
+    incoming.problems = incoming.problems.map(p=> localImgByProblem[p.id] ? {...p, imageDataUrl: localImgByProblem[p.id]} : p);
+    await idbPutUniverse(incoming);
+    if(id===activeUniverseId){ applyLoadedData(incoming); rebuildScene(); }
+  } else if(local.updatedAt > cloudUpdated){
+    pushUniverseToCloud(local); // 로컬이 더 최신 -> 클라우드가 따라오도록 다시 올림
+  }
+}
+
+async function runMigrationIfNeeded(){
+  if(!currentUser) return;
+  const flagKey = 'sb_migrated_' + currentUser.id;
+  if(localStorage.getItem(flagKey)) return;
+  setSyncStatus('busy');
+  try{
+    const [localList, cloudList] = await Promise.all([idbAllUniverses(), pullAllCloudUniverses()]);
+    const cloudIds = new Set(cloudList.map(u=>u.id));
+    for(const doc of localList){
+      if(!cloudIds.has(doc.id)) await pushUniverseToCloud(doc);
+      else await reconcileUniverse(doc.id);
+    }
+    localStorage.setItem(flagKey, '1');
+    setSyncStatus('ok');
+    await renderUniverseList();
+  }catch(e){ console.warn('migration failed', e); setSyncStatus('err'); }
+}
+
+async function initSupabase(){
+  // 오프라인 등의 이유로 SDK 로드가 실패해도 로컬 전용 앱 동작 자체는 절대 깨지면 안 됨
+  try{
+    if(typeof supabase === 'undefined') throw new Error('Supabase SDK not loaded');
+    supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const { data:{ session } } = await supabaseClient.auth.getSession();
+    currentUser = session ? session.user : null;
+    updateLoginBtn();
+    supabaseClient.auth.onAuthStateChange((event, session)=>{
+      currentUser = session ? session.user : null;
+      updateLoginBtn();
+      if(event==='SIGNED_IN'){
+        runMigrationIfNeeded().then(()=>{
+          if(activeUniverseId) reconcileUniverse(activeUniverseId).then(()=>renderUniverseList());
+        });
+      }
+    });
+  }catch(e){
+    console.warn('Supabase init failed, continuing local-only', e);
+    supabaseClient = null;
+    currentUser = null;
+  }
+}
+function signInWithGitHub(){
+  if(!supabaseClient){ alert('로그인 기능을 불러오지 못했어요. 인터넷 연결을 확인하고 새로고침해주세요.'); return; }
+  supabaseClient.auth.signInWithOAuth({ provider:'github', options:{ redirectTo: location.href.split('?')[0] } });
+}
+function signOut(){
+  if(!supabaseClient) return;
+  supabaseClient.auth.signOut();
+}
+document.getElementById('loginBtn').addEventListener('click', ()=>{
+  if(currentUser){
+    if(confirm('로그아웃 하시겠습니까? (기기에 저장된 데이터는 그대로 남아요)')) signOut();
+  } else {
+    signInWithGitHub();
+  }
+});
+
+const dataReady = initSupabase().then(loadData);
 
 // ---------- 물리 시뮬레이션 ----------
 function simulateStep(){
@@ -1190,7 +1377,11 @@ function rebuildScene(){
   updateProblemListCount();
   renderer.render(scene, camera); // matrixWorld를 즉시 갱신해 rAF 이전에도 레이캐스팅이 정확하게 동작하도록 함
 }
-dataReady.then(()=>{ rebuildScene(); updateUniverseBadge(); });
+dataReady.then(()=>{
+  rebuildScene();
+  updateUniverseBadge();
+  if(syncEnabled() && activeUniverseId) reconcileUniverse(activeUniverseId);
+});
 
 // ---------- 카메라 컨트롤 (임의 지점 주시 가능) ----------
 let camTheta=0.6, camPhi=1.15, camDist=260;
