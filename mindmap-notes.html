@@ -43,8 +43,14 @@
   #header .title { font-family:var(--mono); font-size:13px; letter-spacing:0.12em; color:var(--cyan); text-transform:uppercase; }
   #header .sub { font-family:var(--mono); font-size:10px; color:var(--text-dim); margin-top:3px; }
   #header .sub2 { font-family:var(--mono); font-size:9px; color:var(--text-dim); margin-top:2px; opacity:0.75; }
+  #header-pills {
+    pointer-events:auto; display:flex; gap:6px; margin-top:6px; overflow-x:auto; padding-bottom:2px;
+    scrollbar-width:none; -ms-overflow-style:none;
+  }
+  #header-pills::-webkit-scrollbar { display:none; }
+  #header-pills > button { flex:0 0 auto; margin:0 !important; }
   #universeBadge {
-    pointer-events:auto; display:inline-block; margin-top:6px;
+    pointer-events:auto; display:inline-block;
     background:var(--panel); border:1px solid var(--panel-border); color:var(--cyan);
     font-family:var(--mono); font-size:10px; padding:4px 10px; border-radius:12px; cursor:pointer;
   }
@@ -227,7 +233,7 @@
   }
 
   #viewpointBar {
-    position:fixed; top:58px; left:14px; right:14px; z-index:5;
+    position:fixed; left:14px; right:14px; z-index:5;
     display:none; gap:6px; overflow-x:auto; pointer-events:auto; padding-bottom:4px;
   }
   #viewpointBar::-webkit-scrollbar { display:none; }
@@ -523,12 +529,14 @@
 
 <div id="header">
   <div class="title">요점정리 마인드맵</div>
-  <button id="universeBadge">유니버스: <span id="universe-name">-</span> ▾</button>
-  <button id="reviewBtn">🗂 복습 (<span id="review-count">0</span>)</button>
-  <button id="searchBtn">🔍 검색</button>
-  <button id="problemListBtn">📇 문제 (<span id="problem-list-count">0</span>)</button>
-  <button id="videoTabBtn">🎬 영상</button>
-  <button id="loginBtn"><span id="syncDot"></span><span id="loginBtnText">로그인</span></button>
+  <div id="header-pills">
+    <button id="universeBadge">유니버스: <span id="universe-name">-</span> ▾</button>
+    <button id="reviewBtn">🗂 복습 (<span id="review-count">0</span>)</button>
+    <button id="searchBtn">🔍 검색</button>
+    <button id="problemListBtn">📇 문제 (<span id="problem-list-count">0</span>)</button>
+    <button id="videoTabBtn">🎬 영상</button>
+    <button id="loginBtn"><span id="syncDot"></span><span id="loginBtnText">로그인</span></button>
+  </div>
   <div class="sub">NODES: <span id="node-count">0</span> / LINKS: <span id="link-count">0</span></div>
   <div class="sub2">드래그: 회전 · 휠/핀치: 확대 · 노드 드래그: 이동 · 탭: 선택</div>
 </div>
@@ -733,12 +741,12 @@
   <div id="modal">
     <h3>새 개념 추가</h3>
     <div class="parent-badge" id="modal-parent-badge">최상위 개념으로 추가됩니다</div>
-    <label>개념명</label>
-    <input id="m-label" type="text" placeholder="예: 전단설계">
     <label>카테고리</label>
     <input id="m-category" list="cat-list" placeholder="예: 철근콘크리트">
     <datalist id="cat-list"></datalist>
     <div id="m-category-suggest" class="category-suggest"></div>
+    <label>개념명</label>
+    <input id="m-label" type="text" placeholder="예: 전단설계">
     <label>요점 내용</label>
     <textarea id="m-content" placeholder="핵심 내용 정리"></textarea>
     <div class="checkbox-row">
@@ -873,6 +881,9 @@ async function loadData(){
       }
       const id = genUniverseId();
       const now = Date.now();
+      // 여기서는 일부러 루트 노드를 자동으로 안 만듦 — 완전히 빈 상태로 둬야 로그인 후
+      // 마이그레이션 로직이 "이건 그냥 자동생성된 빈 기본판"이라고 정확히 구분해서
+      // 클라우드에 의미없는 중복으로 안 올라감(명시적으로 "+ 만들기"로 만들 때만 루트 노드 생성)
       const record = {
         id, name:'기본 마인드맵', createdAt:now, updatedAt:now,
         categories: (legacy && legacy.categories) || {},
@@ -946,7 +957,14 @@ async function switchUniverse(id){
 async function createUniverse(name){
   const id = genUniverseId();
   const now = Date.now();
-  const record = { id, name: (name||'').trim() || '새 마인드맵', createdAt: now, updatedAt: now, categories:{}, nodes:[], links:[] };
+  const universeName = (name||'').trim() || '새 마인드맵';
+  // 완전히 빈 공간에서 시작하지 않도록, 유니버스 이름을 딴 중심 노드를 하나 자동으로 만들어둠
+  const rootNode = {
+    id: 'n_'+Date.now()+'_'+Math.floor(Math.random()*1000),
+    label: universeName, category: universeName, level: 0, content: '',
+    files: [], fixed: false, x: 0, y: 0, z: 0,
+  };
+  const record = { id, name: universeName, createdAt: now, updatedAt: now, categories:{}, nodes:[rootNode], links:[] };
   await idbPutUniverse(record);
   if(syncEnabled()) pushUniverseToCloud(record);
   await switchUniverse(id);
@@ -1192,22 +1210,42 @@ async function reconcileUniverse(id){
   }
 }
 
+function isEmptyUniverseDoc(u){
+  return (!u.nodes||u.nodes.length===0) && (!u.links||u.links.length===0) && (!u.problems||u.problems.length===0) && (!u.flashcards||u.flashcards.length===0);
+}
 async function runMigrationIfNeeded(){
   if(!currentUser) return;
-  const flagKey = 'sb_migrated_' + currentUser.id;
+  const flagKey = 'sb_migrated_v2_' + currentUser.id; // v2: 첫 배포 버전엔 클라우드->로컬 받아오는 로직이 빠져있었어서, 이미 1회 마이그레이션했던 계정도 다시 한번 돌게 함
   if(localStorage.getItem(flagKey)) return;
   setSyncStatus('busy');
   try{
     const [localList, cloudList] = await Promise.all([idbAllUniverses(), pullAllCloudUniverses()]);
+    const localIds = new Set(localList.map(u=>u.id));
     const cloudIds = new Set(cloudList.map(u=>u.id));
-    for(const doc of localList){
-      if(!cloudIds.has(doc.id)) await pushUniverseToCloud(doc);
-      else await reconcileUniverse(doc.id);
+
+    // 1) 클라우드엔 있는데 이 기기엔 없는 유니버스 -> 받아옴 (이게 빠져있어서 다른 기기 데이터가 안 보이던 버그)
+    for(const row of cloudList){
+      if(!localIds.has(row.id)) await idbPutUniverse(cloudRowToLocalDoc(row));
     }
+    // 2) 이 기기에만 있는 유니버스 -> 올림. 완전히 빈 건 스킵(로그인 전에 자동생성된 빈 기본 유니버스가
+    //    매번 새 기기에서 로그인할 때마다 클라우드에 의미없는 중복으로 쌓이는 걸 막기 위함)
+    for(const doc of localList){
+      if(cloudIds.has(doc.id)) await reconcileUniverse(doc.id);
+      else if(!isEmptyUniverseDoc(doc)) await pushUniverseToCloud(doc);
+    }
+    // 3) 지금 보고 있는 게 빈 자동생성본이고 실제 데이터가 있는(로컬이든 방금 받아온 것이든) 다른
+    //    유니버스가 있으면 그쪽으로 전환 — 로그인했는데 빈 화면부터 보이는 걸 방지
+    const allNow = await idbAllUniverses();
+    const activeDoc = allNow.find(u=>u.id===activeUniverseId);
+    if(activeDoc && isEmptyUniverseDoc(activeDoc) && allNow.length>1){
+      const best = allNow.filter(u=>u.id!==activeUniverseId).sort((a,b)=>b.updatedAt-a.updatedAt)[0];
+      await switchUniverse(best.id);
+    }
+
     localStorage.setItem(flagKey, '1');
     setSyncStatus('ok');
-    await renderUniverseList();
   }catch(e){ console.warn('migration failed', e); setSyncStatus('err'); }
+  await openUniverseModal(); // 로그인 직후엔 항상 유니버스 목록을 보여줘서 직접 고르게 함
 }
 
 async function initSupabase(){
@@ -2535,6 +2573,10 @@ function refreshViewpoints(){
     bar.appendChild(chip);
   });
   bar.style.display = (!selectedId && nodes.length) ? 'flex' : 'none';
+  if(bar.style.display==='flex'){
+    // 헤더 버튼 개수가 늘어나도 항상 헤더 바로 아래에 오도록 실측 높이 기반으로 위치 계산
+    bar.style.top = (document.getElementById('header').getBoundingClientRect().bottom + 8) + 'px';
+  }
 }
 
 // ---------- 추가 모달 ----------
