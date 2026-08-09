@@ -622,7 +622,7 @@
   <div id="ip-problems"></div>
   <div id="ip-flashcards"></div>
   <button id="ip-addcard">+ 플래시카드 만들기</button>
-  <div class="stat-row">연결 개념 <b id="ip-links">0</b></div>
+  <div id="ip-neighbor-links"></div>
   <div class="btn-row">
     <button id="ip-addchild">+ 하위개념</button>
     <button id="ip-linkmode">🔗 연결하기</button>
@@ -1104,21 +1104,36 @@ function stripUniverseForCloud(doc){
     flashcards: doc.flashcards,
   };
 }
+// saveData()는 클라우드 응답을 안 기다리고 바로 반환하는데(로컬 저장이 느려지면 안 되니까),
+// 연속으로 빠르게 저장되면 나중에 보낸 요청이 먼저 도착해버릴 수 있어서(네트워크 타이밍),
+// 옛날 버전이 클라우드에 남는 경쟁상태가 생길 수 있음 — 유니버스별로 한 번에 하나씩만
+// 실제로 전송하고, 그 사이 들어온 더 최신 데이터는 큐에 쌓아뒀다가 다음 차례에 보내는
+// 방식으로 순서를 보장함 (전송 중이던 게 끝나기 전에 여러 번 호출돼도 마지막 것만 남음).
+const pendingPush = {};   // universeId -> 가장 최신 데이터
+const pushRunning = {};   // universeId -> 전송 진행중 여부
 async function pushUniverseToCloud(doc){
   if(!syncEnabled()) return;
+  pendingPush[doc.id] = doc;
+  if(pushRunning[doc.id]) return; // 이미 도는 워커가 최신 데이터를 알아서 집어감
+  pushRunning[doc.id] = true;
   setSyncStatus('busy');
   try{
-    const { error } = await supabaseClient.from('universes').upsert({
-      id: doc.id,
-      user_id: currentUser.id,
-      name: doc.name,
-      data: stripUniverseForCloud(doc),
-      created_at: new Date(doc.createdAt).toISOString(),
-      updated_at: new Date(doc.updatedAt).toISOString(),
-    });
-    if(error) throw error;
+    while(pendingPush[doc.id]){
+      const toSend = pendingPush[doc.id];
+      delete pendingPush[doc.id];
+      const { error } = await supabaseClient.from('universes').upsert({
+        id: toSend.id,
+        user_id: currentUser.id,
+        name: toSend.name,
+        data: stripUniverseForCloud(toSend),
+        created_at: new Date(toSend.createdAt).toISOString(),
+        updated_at: new Date(toSend.updatedAt).toISOString(),
+      });
+      if(error) throw error;
+    }
     setSyncStatus('ok');
   }catch(e){ console.warn('cloud push failed', e); setSyncStatus('err'); }
+  finally{ pushRunning[doc.id] = false; }
 }
 async function pullUniverseFromCloud(id){
   if(!syncEnabled()) return null;
@@ -1569,7 +1584,6 @@ const infoPanel = document.getElementById('info-panel');
 const ipCat = document.getElementById('ip-cat');
 const ipLabel = document.getElementById('ip-label');
 const ipContent = document.getElementById('ip-content');
-const ipLinks = document.getElementById('ip-links');
 const ipImages = document.getElementById('ip-images');
 
 function renderImages(n){
@@ -1817,6 +1831,44 @@ document.getElementById('fv-ocr-save-problem').addEventListener('click', ()=>{
   renderProblems(n);
   document.getElementById('fv-ocr-status').textContent = '문제 카드로 저장됨';
 });
+
+// ---------- 연결(링크) 목록 + 개별 연결 끊기 ----------
+function renderNeighborLinks(n){
+  const el = document.getElementById('ip-neighbor-links');
+  el.innerHTML = '';
+  const myLinks = links.filter(l=>l.source.id===n.id || l.target.id===n.id);
+  const header = document.createElement('div');
+  header.className = 'problem-header';
+  header.textContent = '연결 개념 (' + myLinks.length + ')';
+  el.appendChild(header);
+  if(myLinks.length===0) return;
+  myLinks.forEach(l=>{
+    const other = l.source.id===n.id ? l.target : l.source;
+    const row = document.createElement('div');
+    row.className = 'card-row';
+    const body = document.createElement('div');
+    body.className = 'card-row-body';
+    const label = document.createElement('div');
+    label.className = 'card-front';
+    label.textContent = other.label;
+    body.appendChild(label);
+    row.appendChild(body);
+    const delBtn = document.createElement('button');
+    delBtn.className = 'card-del';
+    delBtn.textContent = '×';
+    delBtn.title = '연결 끊기';
+    delBtn.addEventListener('click', ev=>{ ev.stopPropagation(); removeLink(n.id, other.id); });
+    row.appendChild(delBtn);
+    el.appendChild(row);
+  });
+}
+function removeLink(idA, idB){
+  if(!confirm('이 연결을 끊을까요? (두 개념 자체는 그대로 남아요)')) return;
+  links = links.filter(l=>!((l.source.id===idA&&l.target.id===idB)||(l.source.id===idB&&l.target.id===idA)));
+  resettle(60);
+  saveData();
+  rebuildScene(); // selectedId가 남아있으면 rebuildScene이 알아서 패널을 다시 그려줌
+}
 
 function renderProblems(n){
   const el = document.getElementById('ip-problems');
@@ -2344,7 +2396,7 @@ function selectNode(id, silent){
     ipCat.style.background = hex(c)+'26';
     ipLabel.value = n.label;
     ipContent.value = n.content || '';
-    ipLinks.textContent = neighbors.size;
+    renderNeighborLinks(n);
     renderImages(n);
     renderProblems(n);
     renderFlashcards(n);
