@@ -761,6 +761,12 @@
 </div>
 
 <script>
+// 드물게 로그인 리다이렉트 URL 해시가 ##access_token=... 처럼 중복으로 붙어서 Supabase SDK가
+// 못 읽는 경우가 있었음(리다이렉트 시작 시점에 이미 해시가 있으면 발생) — 있으면 정리하고 시작
+if(location.hash.indexOf('#', 1) > 0){
+  history.replaceState(null, '', location.pathname + location.search + location.hash.replace(/^#+/, '#'));
+}
+
 // ---------- 저장/불러오기 ----------
 const STORAGE_KEY = 'study_mindmap_v1';
 const PALETTE = [0x00d4ff, 0xff3d81, 0xffa620, 0x9d4edd, 0x00e676, 0xff5252, 0x448aff, 0xffd600];
@@ -929,6 +935,10 @@ function colorFor(cat){
   return categories[cat];
 }
 function hex(c){ return '#'+c.toString(16).padStart(6,'0'); }
+function pruneUnusedCategories(){
+  const inUse = new Set(nodes.map(n=>n.category));
+  Object.keys(categories).forEach(cat=>{ if(!inUse.has(cat)) delete categories[cat]; });
+}
 
 // ---------- 유니버스(개별 마인드맵) 관리 ----------
 function updateUniverseBadge(){
@@ -1273,15 +1283,20 @@ async function initSupabase(){
 }
 function signInWithGitHub(){
   if(!supabaseClient){ alert('로그인 기능을 불러오지 못했어요. 인터넷 연결을 확인하고 새로고침해주세요.'); return; }
-  supabaseClient.auth.signInWithOAuth({ provider:'github', options:{ redirectTo: location.href.split('?')[0] } });
+  // 쿼리스트링/해시가 이미 붙어있는 상태에서 로그인하면 Supabase가 돌려주는 #access_token=...이
+  // 기존 해시 뒤에 덧붙어서 ##access_token=... 이 되어버려 파싱이 깨짐 — 항상 깨끗한 기본 URL로 보냄
+  supabaseClient.auth.signInWithOAuth({ provider:'github', options:{ redirectTo: location.origin + location.pathname } });
 }
-function signOut(){
+async function signOut(){
   if(!supabaseClient) return;
-  supabaseClient.auth.signOut();
+  await supabaseClient.auth.signOut();
+  // 로그아웃했는데 방금까지 보던(계정과 연결됐던) 마인드맵이 화면에 그대로 남아있으면 헷갈리니,
+  // 새 빈 화면으로 전환함 — 기존 유니버스는 전부 그대로 보존되고, 유니버스 목록에서 다시 선택 가능
+  await createUniverse('새 마인드맵');
 }
 document.getElementById('loginBtn').addEventListener('click', ()=>{
   if(currentUser){
-    if(confirm('로그아웃 하시겠습니까? (기기에 저장된 데이터는 그대로 남아요)')) signOut();
+    if(confirm('로그아웃 하시겠습니까? (저장된 유니버스는 그대로 남고, 화면은 새 마인드맵으로 바뀌어요)')) signOut();
   } else {
     signInWithGitHub();
   }
@@ -1418,6 +1433,7 @@ function rebuildScene(){
     linkGroup.add(l.line);
   });
   rebuildNeighborMap();
+  pruneUnusedCategories(); // 어떤 노드도 안 쓰는 카테고리는 범례/목록에서 자동으로 사라지게
   document.getElementById('node-count').textContent = nodes.length;
   document.getElementById('link-count').textContent = links.length;
   document.getElementById('emptyHint').style.display = nodes.length===0 ? 'flex' : 'none';
