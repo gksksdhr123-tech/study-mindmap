@@ -59,6 +59,12 @@
     background:var(--panel); border:1px solid var(--panel-border); color:var(--steel);
     font-family:var(--mono); font-size:10px; padding:4px 10px; border-radius:12px; cursor:pointer;
   }
+  #undoBtn, #redoBtn {
+    pointer-events:auto; display:inline-block;
+    background:var(--panel); border:1px solid var(--panel-border); color:var(--text-dim);
+    font-family:var(--mono); font-size:10px; padding:4px 10px; border-radius:12px; cursor:pointer;
+  }
+  #undoBtn:disabled, #redoBtn:disabled { opacity:0.35; cursor:default; }
   #searchBtn {
     pointer-events:auto; display:inline-block; margin-top:6px; margin-left:6px;
     background:var(--panel); border:1px solid var(--panel-border); color:var(--text-dim);
@@ -531,6 +537,8 @@
   <div class="title">요점정리 마인드맵</div>
   <div id="header-pills">
     <button id="universeBadge">유니버스: <span id="universe-name">-</span> ▾</button>
+    <button id="undoBtn" disabled>↩ 실행취소</button>
+    <button id="redoBtn" disabled>↪ 다시실행</button>
     <button id="reviewBtn">🗂 복습 (<span id="review-count">0</span>)</button>
     <button id="searchBtn">🔍 검색</button>
     <button id="problemListBtn">📇 문제 (<span id="problem-list-count">0</span>)</button>
@@ -907,6 +915,45 @@ async function loadData(){
     applyLoadedData(active);
   }catch(e){ console.warn('load failed', e); }
 }
+// ---------- 실행취소/다시실행 ----------
+// saveData() 호출(=사용자가 뭔가 확정한 시점)마다, 그 직전 상태를 스택에 쌓아두는 방식.
+// 텍스트 입력 도중이 아니라 "저장/삭제/드래그 확정" 같은 의미있는 동작 단위로만 쌓여서
+// 실행취소가 키입력 하나하나가 아니라 자연스러운 단위로 동작함.
+let undoStack = [];
+let redoStack = [];
+let lastSavedSnapshot = null;
+const UNDO_LIMIT = 30;
+function updateUndoRedoBtns(){
+  document.getElementById('undoBtn').disabled = undoStack.length===0;
+  document.getElementById('redoBtn').disabled = redoStack.length===0;
+}
+async function performUndo(){
+  if(undoStack.length===0 || !lastSavedSnapshot) return;
+  redoStack.push(lastSavedSnapshot);
+  const prev = undoStack.pop();
+  lastSavedSnapshot = prev;
+  applyLoadedData(prev);
+  selectedId = null;
+  await idbPutUniverse(prev);
+  if(syncEnabled()) pushUniverseToCloud(prev);
+  rebuildScene();
+  updateUndoRedoBtns();
+}
+async function performRedo(){
+  if(redoStack.length===0 || !lastSavedSnapshot) return;
+  undoStack.push(lastSavedSnapshot);
+  const next = redoStack.pop();
+  lastSavedSnapshot = next;
+  applyLoadedData(next);
+  selectedId = null;
+  await idbPutUniverse(next);
+  if(syncEnabled()) pushUniverseToCloud(next);
+  rebuildScene();
+  updateUndoRedoBtns();
+}
+document.getElementById('undoBtn').addEventListener('click', performUndo);
+document.getElementById('redoBtn').addEventListener('click', performRedo);
+
 async function saveData(){
   if(!activeUniverseId) return;
   const data = {
@@ -920,6 +967,13 @@ async function saveData(){
     problems,
     flashcards,
   };
+  if(lastSavedSnapshot && lastSavedSnapshot.id===activeUniverseId){
+    undoStack.push(lastSavedSnapshot);
+    if(undoStack.length>UNDO_LIMIT) undoStack.shift();
+    redoStack = [];
+  }
+  lastSavedSnapshot = JSON.parse(JSON.stringify(data));
+  updateUndoRedoBtns();
   try{
     await idbPutUniverse(data);
   }catch(e){
@@ -952,6 +1006,7 @@ async function switchUniverse(id){
   currentUniverseMeta = { name: record.name, createdAt: record.createdAt };
   localStorage.setItem(ACTIVE_KEY, id);
   applyLoadedData(record);
+  undoStack = []; redoStack = []; lastSavedSnapshot = JSON.parse(JSON.stringify(record)); updateUndoRedoBtns();
   selectedId = null;
   exitLinkMode();
   draggingNodeId = null;
@@ -992,6 +1047,19 @@ async function renameUniverse(id){
   if(syncEnabled()) pushUniverseToCloud(record);
   await renderUniverseList();
 }
+async function duplicateUniverse(id){
+  const record = await idbGetUniverse(id);
+  if(!record) return;
+  const now = Date.now();
+  const copy = JSON.parse(JSON.stringify(record)); // 노드/링크/문제/카드 전부 깊은 복사
+  copy.id = genUniverseId();
+  copy.name = record.name + ' 사본';
+  copy.createdAt = now;
+  copy.updatedAt = now;
+  await idbPutUniverse(copy);
+  if(syncEnabled()) pushUniverseToCloud(copy);
+  await renderUniverseList();
+}
 async function removeUniverse(id){
   if(!confirm('이 유니버스를 삭제할까요? 안에 있는 모든 노드/이미지가 사라집니다.')) return;
   await idbDeleteUniverse(id);
@@ -1024,11 +1092,14 @@ async function renderUniverseList(){
     const renameBtn = document.createElement('button');
     renameBtn.textContent = '이름변경';
     renameBtn.addEventListener('click', ev=>{ ev.stopPropagation(); renameUniverse(u.id); });
+    const dupBtn = document.createElement('button');
+    dupBtn.textContent = '복사';
+    dupBtn.addEventListener('click', ev=>{ ev.stopPropagation(); duplicateUniverse(u.id); });
     const delBtn = document.createElement('button');
     delBtn.textContent = '삭제';
     delBtn.className = 'danger';
     delBtn.addEventListener('click', ev=>{ ev.stopPropagation(); removeUniverse(u.id); });
-    row.appendChild(info); row.appendChild(renameBtn); row.appendChild(delBtn);
+    row.appendChild(info); row.appendChild(renameBtn); row.appendChild(dupBtn); row.appendChild(delBtn);
     el.appendChild(row);
   });
 }
@@ -1264,16 +1335,20 @@ async function initSupabase(){
     supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const { data:{ session } } = await supabaseClient.auth.getSession();
     currentUser = session ? session.user : null;
+    let wasLoggedIn = !!currentUser; // 페이지가 뜰 때 이미 로그인 세션이 복원돼 있었는지 기억
     updateLoginBtn();
     supabaseClient.auth.onAuthStateChange((event, session)=>{
       currentUser = session ? session.user : null;
       updateLoginBtn();
-      if(event==='SIGNED_IN'){
-        // 마이그레이션(계정당 1회만)이랑 별개로, 로그인할 때마다 매번 유니버스 선택창을 띄움
+      // 카메라 촬영 등으로 브라우저가 페이지를 재시작시키면 이미 로그인된 세션이 복원되면서도
+      // SIGNED_IN이 뜰 때가 있음 — 그때마다 선택창이 뜨면 촬영하고 돌아올 때마다 튀어나오게 되니,
+      // "로그인 상태에서 로그인 상태로"가 아니라 진짜 로그아웃→로그인 전환일 때만 선택창을 띄움
+      if(event==='SIGNED_IN' && !wasLoggedIn){
         runMigrationIfNeeded()
           .then(()=> activeUniverseId ? reconcileUniverse(activeUniverseId) : null)
           .then(()=> openUniverseModal());
       }
+      wasLoggedIn = !!currentUser;
     });
   }catch(e){
     console.warn('Supabase init failed, continuing local-only', e);
@@ -1287,12 +1362,26 @@ function signInWithGitHub(){
   // 기존 해시 뒤에 덧붙어서 ##access_token=... 이 되어버려 파싱이 깨짐 — 항상 깨끗한 기본 URL로 보냄
   supabaseClient.auth.signInWithOAuth({ provider:'github', options:{ redirectTo: location.origin + location.pathname } });
 }
+const LOGOUT_SCRATCH_ID = 'u_logout_scratch';
 async function signOut(){
   if(!supabaseClient) return;
   await supabaseClient.auth.signOut();
   // 로그아웃했는데 방금까지 보던(계정과 연결됐던) 마인드맵이 화면에 그대로 남아있으면 헷갈리니,
-  // 새 빈 화면으로 전환함 — 기존 유니버스는 전부 그대로 보존되고, 유니버스 목록에서 다시 선택 가능
-  await createUniverse('새 마인드맵');
+  // 새 빈 화면으로 전환함 — 기존 유니버스는 전부 그대로 보존됨. 고정된 id를 재사용해서
+  // 로그아웃할 때마다 "새 마인드맵"이 계속 새로 쌓이지 않게 함(로그인/로그아웃 반복 테스트해도 하나만 유지)
+  let scratch = await idbGetUniverse(LOGOUT_SCRATCH_ID);
+  if(!scratch){
+    const now = Date.now();
+    scratch = {
+      id: LOGOUT_SCRATCH_ID, name:'새 마인드맵', createdAt: now, updatedAt: now,
+      categories:{},
+      nodes:[{ id:'n_'+now, label:'새 마인드맵', category:'새 마인드맵', level:0, content:'', files:[], fixed:false, x:0, y:0, z:0 }],
+      links:[], problems:[], flashcards:[],
+    };
+    await idbPutUniverse(scratch);
+  }
+  await switchUniverse(scratch.id);
+  await renderUniverseList();
 }
 document.getElementById('loginBtn').addEventListener('click', ()=>{
   if(currentUser){
@@ -1418,6 +1507,15 @@ function rebuildScene(){
     mesh.userData = { id:n.id };
     nodeGroup.add(mesh);
     n.mesh = mesh;
+    // 실제 구슬보다 훨씬 큰 투명 히트영역을 따로 둠 — 터치로는 작은 구를 정확히 못 잡아서
+    // 드래그가 자꾸 카메라 회전으로 새는 문제(레이캐스트 실패 시 회전으로 처리됨) 때문에 추가
+    const hitGeo = new THREE.SphereGeometry(size + 7, 8, 8);
+    const hitMat = new THREE.MeshBasicMaterial({ visible:false });
+    const hitMesh = new THREE.Mesh(hitGeo, hitMat);
+    hitMesh.position.set(n.x, n.y, n.z);
+    hitMesh.userData = { id:n.id };
+    nodeGroup.add(hitMesh);
+    n.hitMesh = hitMesh;
     const label = makeLabelSprite(n.label, n.category, color);
     label.position.set(n.x, n.y+size+6, n.z);
     nodeGroup.add(label);
@@ -1446,9 +1544,11 @@ function rebuildScene(){
   updateProblemListCount();
   renderer.render(scene, camera); // matrixWorld를 즉시 갱신해 rAF 이전에도 레이캐스팅이 정확하게 동작하도록 함
 }
-dataReady.then(()=>{
+dataReady.then(async ()=>{
   rebuildScene();
   updateUniverseBadge();
+  if(activeUniverseId) lastSavedSnapshot = await idbGetUniverse(activeUniverseId);
+  updateUndoRedoBtns();
   if(syncEnabled() && activeUniverseId) reconcileUniverse(activeUniverseId);
 });
 
@@ -1522,6 +1622,7 @@ function onPointerMove(x,y){
       const n = nodes.find(nn=>nn.id===draggingNodeId);
       n.x=pt.x; n.y=pt.y; n.z=pt.z;
       n.mesh.position.set(pt.x,pt.y,pt.z);
+      if(n.hitMesh) n.hitMesh.position.set(pt.x,pt.y,pt.z);
       n.label3d.position.set(pt.x, pt.y+nodeSize(n)+6, pt.z);
       links.forEach(l=>{
         if(l.source.id===n.id || l.target.id===n.id){
@@ -1691,13 +1792,24 @@ function openViewer(files, idx){
   fileViewer.style.display = 'flex';
   renderViewerContent();
 }
-function renderViewerContent(){
+let viewerPdfBlobUrl = null;
+async function renderViewerContent(){
   const f = viewerFiles[viewerIndex];
   fvBody.innerHTML = '';
+  if(viewerPdfBlobUrl){ URL.revokeObjectURL(viewerPdfBlobUrl); viewerPdfBlobUrl = null; }
   if(f.type==='pdf'){
     const embed = document.createElement('embed');
-    embed.src = f.dataUrl;
     embed.type = 'application/pdf';
+    // data: URI를 그대로 넣으면 특히 용량 큰 PDF에서 모바일 브라우저가 못 여는 경우가 있어서,
+    // blob URL로 바꿔서 넣음 — 저장은 그대로 dataUrl(기기 안에서만)로 하고 보여줄 때만 변환
+    try{
+      const res = await fetch(f.dataUrl);
+      const blob = await res.blob();
+      viewerPdfBlobUrl = URL.createObjectURL(blob);
+      embed.src = viewerPdfBlobUrl;
+    }catch(e){
+      embed.src = f.dataUrl; // 변환 실패하면 그래도 원래 방식으로 시도
+    }
     fvBody.appendChild(embed);
   } else {
     const img = document.createElement('img');
@@ -1720,7 +1832,10 @@ function renderViewerContent(){
     ocrPanel.style.display = 'none';
   }
 }
-function closeViewer(){ fileViewer.style.display = 'none'; }
+function closeViewer(){
+  fileViewer.style.display = 'none';
+  if(viewerPdfBlobUrl){ URL.revokeObjectURL(viewerPdfBlobUrl); viewerPdfBlobUrl = null; }
+}
 document.getElementById('fv-close').addEventListener('click', closeViewer);
 document.getElementById('fv-prev').addEventListener('click', ()=>{
   viewerIndex = (viewerIndex-1+viewerFiles.length)%viewerFiles.length;
@@ -1924,6 +2039,14 @@ function removeLink(idA, idB){
   rebuildScene(); // selectedId가 남아있으면 rebuildScene이 알아서 패널을 다시 그려줌
 }
 
+function removeProblem(id){
+  if(!confirm('이 문제 카드를 삭제할까요?')) return;
+  problems = problems.filter(p=>p.id!==id);
+  saveData();
+  const n = nodes.find(x=>x.id===selectedId);
+  if(n) renderProblems(n);
+  updateProblemListCount();
+}
 function renderProblems(n){
   const el = document.getElementById('ip-problems');
   el.innerHTML = '';
@@ -2503,6 +2626,20 @@ document.getElementById('ip-camera-input').addEventListener('change', async e=>{
   e.target.value = '';
   if(!n || files.length===0) return;
   await attachFiles(n, files);
+  const newFile = n.files[n.files.length-1];
+  openCropModal(newFile);
+});
+// 캡쳐한 화면이나 복사한 이미지를 Ctrl+V로 바로 붙여넣으면, 촬영한 것과 똑같이 첨부+크롭+OCR로 이어짐
+document.addEventListener('paste', async e=>{
+  const n = nodes.find(x=>x.id===selectedId);
+  if(!n) return;
+  const items = Array.from(e.clipboardData ? e.clipboardData.items : []);
+  const imageItem = items.find(it=>it.type && it.type.startsWith('image/'));
+  if(!imageItem) return;
+  const file = imageItem.getAsFile();
+  if(!file) return;
+  e.preventDefault();
+  await attachFiles(n, [file]);
   const newFile = n.files[n.files.length-1];
   openCropModal(newFile);
 });
