@@ -1104,6 +1104,7 @@ async function renderUniverseList(){
   });
 }
 async function openUniverseModal(){
+  if(syncEnabled()) await pullMissingCloudUniverses();
   await renderUniverseList();
   document.getElementById('universe-overlay').style.display = 'flex';
 }
@@ -1294,20 +1295,30 @@ async function reconcileUniverse(id){
 function isEmptyUniverseDoc(u){
   return (!u.nodes||u.nodes.length===0) && (!u.links||u.links.length===0) && (!u.problems||u.problems.length===0) && (!u.flashcards||u.flashcards.length===0);
 }
+// 클라우드엔 있는데 이 기기 로컬 IndexedDB엔 아직 없는 유니버스를 받아옴(예: 다른 기기에서 방금 새로 만든 것).
+// 이 기기가 이미 예전에 마이그레이션을 마쳐서 runMigrationIfNeeded가 조기 return되는 경우에도,
+// 유니버스 목록을 열 때마다 항상 이걸 돌려야 새로 생긴 유니버스가 보임 — 안 그러면 "다른 기기에서
+// 만든 유니버스가 영원히 안 보이는" 버그가 남음(데이터 자체는 클라우드에 안전하게 있어도 목록엔 없음).
+async function pullMissingCloudUniverses(){
+  if(!syncEnabled()) return false;
+  const [localList, cloudList] = await Promise.all([idbAllUniverses(), pullAllCloudUniverses()]);
+  const localIds = new Set(localList.map(u=>u.id));
+  let pulled = false;
+  for(const row of cloudList){
+    if(!localIds.has(row.id)){ await idbPutUniverse(cloudRowToLocalDoc(row)); pulled = true; }
+  }
+  return pulled;
+}
 async function runMigrationIfNeeded(){
   if(!currentUser) return;
   const flagKey = 'sb_migrated_v2_' + currentUser.id; // v2: 첫 배포 버전엔 클라우드->로컬 받아오는 로직이 빠져있었어서, 이미 1회 마이그레이션했던 계정도 다시 한번 돌게 함
   if(localStorage.getItem(flagKey)) return;
   setSyncStatus('busy');
   try{
+    // 1) 클라우드엔 있는데 이 기기엔 없는 유니버스 -> 받아옴
+    await pullMissingCloudUniverses();
     const [localList, cloudList] = await Promise.all([idbAllUniverses(), pullAllCloudUniverses()]);
-    const localIds = new Set(localList.map(u=>u.id));
     const cloudIds = new Set(cloudList.map(u=>u.id));
-
-    // 1) 클라우드엔 있는데 이 기기엔 없는 유니버스 -> 받아옴 (이게 빠져있어서 다른 기기 데이터가 안 보이던 버그)
-    for(const row of cloudList){
-      if(!localIds.has(row.id)) await idbPutUniverse(cloudRowToLocalDoc(row));
-    }
     // 2) 이 기기에만 있는 유니버스 -> 올림. 완전히 빈 건 스킵(로그인 전에 자동생성된 빈 기본 유니버스가
     //    매번 새 기기에서 로그인할 때마다 클라우드에 의미없는 중복으로 쌓이는 걸 막기 위함)
     for(const doc of localList){
