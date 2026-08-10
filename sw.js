@@ -1,4 +1,4 @@
-const CACHE_NAME = 'study-mindmap-v17';
+const CACHE_NAME = 'study-mindmap-v18';
 const CDN_URLS = [
   'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js',

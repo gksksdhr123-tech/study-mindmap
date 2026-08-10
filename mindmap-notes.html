@@ -1255,7 +1255,6 @@ async function runMigrationIfNeeded(){
     localStorage.setItem(flagKey, '1');
     setSyncStatus('ok');
   }catch(e){ console.warn('migration failed', e); setSyncStatus('err'); }
-  await openUniverseModal(); // 로그인 직후엔 항상 유니버스 목록을 보여줘서 직접 고르게 함
 }
 
 async function initSupabase(){
@@ -1270,9 +1269,10 @@ async function initSupabase(){
       currentUser = session ? session.user : null;
       updateLoginBtn();
       if(event==='SIGNED_IN'){
-        runMigrationIfNeeded().then(()=>{
-          if(activeUniverseId) reconcileUniverse(activeUniverseId).then(()=>renderUniverseList());
-        });
+        // 마이그레이션(계정당 1회만)이랑 별개로, 로그인할 때마다 매번 유니버스 선택창을 띄움
+        runMigrationIfNeeded()
+          .then(()=> activeUniverseId ? reconcileUniverse(activeUniverseId) : null)
+          .then(()=> openUniverseModal());
       }
     });
   }catch(e){
