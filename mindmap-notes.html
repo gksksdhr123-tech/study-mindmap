@@ -283,6 +283,40 @@
     border-radius:12px; font-family:var(--mono); font-size:10.5px; cursor:pointer;
   }
 
+  #recatBanner {
+    position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:12;
+    display:none; align-items:center; gap:10px;
+    background:var(--cyan); color:#070d1c; padding:8px 14px; border-radius:20px;
+    font-family:var(--mono); font-size:11.5px; font-weight:600; white-space:nowrap;
+  }
+  #recatBanner button {
+    background:rgba(10,22,38,0.25); border:none; color:#070d1c; padding:4px 10px;
+    border-radius:12px; font-family:var(--mono); font-size:10.5px; cursor:pointer;
+  }
+  #recat-overlay {
+    position:fixed; inset:0; z-index:26; display:none;
+    background:rgba(5,10,18,0.8); align-items:center; justify-content:center; padding:16px;
+  }
+  #recat-box {
+    width:min(360px, 94vw); background:var(--panel); border:1px solid var(--panel-border);
+    border-radius:12px; padding:16px; display:flex; flex-direction:column; gap:10px;
+  }
+  #recat-box h3 { font-family:var(--mono); font-size:13px; color:var(--cyan); letter-spacing:.04em; }
+  #recat-box .hint { font-family:var(--mono); font-size:10px; color:var(--text-dim); }
+  #recat-box input {
+    width:100%; background:#070d1c; border:1px solid var(--panel-border); color:var(--text);
+    border-radius:6px; padding:9px; font-family:var(--sans); font-size:13px;
+  }
+  #recat-chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .recat-chip {
+    background:#070d1c; border:1px solid var(--panel-border); color:var(--text-dim);
+    font-family:var(--mono); font-size:10.5px; padding:5px 10px; border-radius:12px; cursor:pointer;
+  }
+  #recat-box .btn-row { display:flex; gap:8px; }
+  #recat-box .btn-row button { flex:1; padding:10px; border-radius:8px; border:1px solid var(--panel-border); background:#070d1c; color:var(--text-dim); font-family:var(--mono); font-size:12px; cursor:pointer; }
+  #recat-box .btn-row button.primary { background:var(--cyan); color:#070d1c; border-color:var(--cyan); font-weight:600; }
+  #ip-recat { width:100%; margin-bottom:8px; background:rgba(0,212,255,0.08); color:var(--cyan); border-color:var(--cyan); }
+
   #info-panel {
     position:fixed; top:14px; right:14px; z-index:6;
     width:min(280px, 82vw); max-height:78vh; overflow-y:auto;
@@ -576,6 +610,12 @@
   <button id="linkModeCancel">취소</button>
 </div>
 
+<div id="recatBanner">
+  <span id="recatBannerText">카테고리 바꿀 노드를 탭해서 추가/제외하세요</span>
+  <button id="recatDone">완료</button>
+  <button id="recatCancelBtn">취소</button>
+</div>
+
 <div id="search-overlay">
   <div id="search-box">
     <input id="search-input" type="text" placeholder="개념명, 내용으로 검색...">
@@ -639,6 +679,7 @@
   <div id="ip-flashcards"></div>
   <button id="ip-addcard">+ 플래시카드 만들기</button>
   <div id="ip-neighbor-links"></div>
+  <button id="ip-recat">🏷 카테고리 변경</button>
   <div class="btn-row">
     <button id="ip-addchild">+ 하위개념</button>
     <button id="ip-linkmode">🔗 연결하기</button>
@@ -764,6 +805,19 @@
     <div class="btn-row">
       <button id="m-cancel">취소</button>
       <button id="m-save" class="primary">추가</button>
+    </div>
+  </div>
+</div>
+
+<div id="recat-overlay">
+  <div id="recat-box">
+    <h3>카테고리 변경</h3>
+    <div class="hint">새 카테고리명을 입력하거나 아래에서 골라주세요</div>
+    <input id="recat-category" list="cat-list" placeholder="예: 내진설계">
+    <div id="recat-chips"></div>
+    <div class="btn-row">
+      <button id="recat-modal-cancel">취소</button>
+      <button id="recat-modal-confirm" class="primary">다음: 포함할 노드 선택</button>
     </div>
   </div>
 </div>
@@ -1520,7 +1574,7 @@ function rebuildScene(){
     n.mesh = mesh;
     // 실제 구슬보다 훨씬 큰 투명 히트영역을 따로 둠 — 터치로는 작은 구를 정확히 못 잡아서
     // 드래그가 자꾸 카메라 회전으로 새는 문제(레이캐스트 실패 시 회전으로 처리됨) 때문에 추가
-    const hitGeo = new THREE.SphereGeometry(size + 7, 8, 8);
+    const hitGeo = new THREE.SphereGeometry(size + 3.5, 8, 8);
     const hitMat = new THREE.MeshBasicMaterial({ visible:false });
     const hitMesh = new THREE.Mesh(hitGeo, hitMat);
     hitMesh.position.set(n.x, n.y, n.z);
@@ -1569,6 +1623,7 @@ let targetTheta=camTheta, targetPhi=camPhi, targetDist=camDist;
 let camTarget = {x:0,y:0,z:0};
 let targetCamTarget = {x:0,y:0,z:0};
 let isDragging=false, dragMoved=false, lastX=0, lastY=0, autoRotate=true;
+let isPanning=false;
 const LERP = 0.16;
 
 function updateCameraFromSpherical(){
@@ -1578,6 +1633,20 @@ function updateCameraFromSpherical(){
   camera.lookAt(camTarget.x, camTarget.y, camTarget.z);
 }
 updateCameraFromSpherical();
+
+// 시야 이동(팬): 우클릭 드래그(PC) / 두 손가락 드래그(터치)로 카메라가 보는 지점 자체를 옮김.
+// 기존 회전(궤도)은 camTarget을 고정한 채 각도만 바꾸는 거라 "보던 위치"를 벗어날 수 없었는데,
+// 이걸로 camTarget 자체를 옮겨서 원하는 방향으로 시야를 이동할 수 있게 함.
+function panCamera(dx, dy){
+  const right = new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion);
+  const up = new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion);
+  const factor = camDist * 0.0022; // 줌 아웃했을 때도 체감 이동속도가 비슷하도록 거리에 비례
+  camTarget.x += -right.x*dx*factor + up.x*dy*factor;
+  camTarget.y += -right.y*dx*factor + up.y*dy*factor;
+  camTarget.z += -right.z*dx*factor + up.z*dy*factor;
+  targetCamTarget = { ...camTarget }; // lerp가 뒤늦게 따라오면서 튀지 않도록 목표도 즉시 맞춰줌
+  autoRotate = false;
+}
 
 function focusView(catName){
   const set = catName ? nodes.filter(n=>n.category===catName) : nodes;
@@ -1608,9 +1677,14 @@ function raycastNode(x,y){
   return hits.length>0 ? hits[0].object.userData.id : null;
 }
 
-function onPointerDown(x,y){
+function onPointerDown(x,y,button){
   lastX=x; lastY=y; dragMoved=false;
-  const hitId = linkSourceId ? null : raycastNode(x,y);
+  if(button===2){ // 우클릭 드래그 = 팬(시야 이동), 아래에 뭐가 있든 노드 집기/회전 대신 무조건 팬으로 처리
+    isPanning = true;
+    autoRotate = false;
+    return;
+  }
+  const hitId = (linkSourceId || recatMode) ? null : raycastNode(x,y);
   if(hitId){
     draggingNodeId = hitId;
     autoRotate = false;
@@ -1626,6 +1700,11 @@ function onPointerDown(x,y){
 function onPointerMove(x,y){
   const dx=x-lastX, dy=y-lastY;
   if(Math.abs(dx)>2||Math.abs(dy)>2) dragMoved=true;
+  if(isPanning){
+    panCamera(dx,dy);
+    lastX=x; lastY=y;
+    return;
+  }
   if(draggingNodeId){
     raycaster.setFromCamera(screenToNDC(x,y), camera);
     const pt = new THREE.Vector3();
@@ -1655,6 +1734,7 @@ function onPointerMove(x,y){
   lastX=x; lastY=y;
 }
 function onPointerUp(){
+  isPanning = false;
   if(draggingNodeId){
     const id = draggingNodeId;
     draggingNodeId = null;
@@ -1668,15 +1748,18 @@ function onPointerUp(){
   }
   isDragging = false;
 }
-renderer.domElement.addEventListener('mousedown', e=>onPointerDown(e.clientX,e.clientY));
+renderer.domElement.addEventListener('mousedown', e=>onPointerDown(e.clientX,e.clientY,e.button));
 window.addEventListener('mousemove', e=>onPointerMove(e.clientX,e.clientY));
 window.addEventListener('mouseup', onPointerUp);
+renderer.domElement.addEventListener('contextmenu', e=>e.preventDefault()); // 우클릭 = 팬이라 브라우저 기본 메뉴는 막음
 
-let lastPinch=null;
+let lastPinch=null, lastPinchCenter=null;
 function pinchDist(t){ return Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY); }
+function pinchCenter(t){ return { x:(t[0].clientX+t[1].clientX)/2, y:(t[0].clientY+t[1].clientY)/2 }; }
 renderer.domElement.addEventListener('touchstart', e=>{
   if(e.touches.length===1) onPointerDown(e.touches[0].clientX, e.touches[0].clientY);
   lastPinch = e.touches.length===2 ? pinchDist(e.touches) : null;
+  lastPinchCenter = e.touches.length===2 ? pinchCenter(e.touches) : null;
 }, {passive:true});
 renderer.domElement.addEventListener('touchmove', e=>{
   if(e.touches.length===1) onPointerMove(e.touches[0].clientX, e.touches[0].clientY);
@@ -1684,9 +1767,13 @@ renderer.domElement.addEventListener('touchmove', e=>{
     const d = pinchDist(e.touches);
     if(lastPinch){ targetDist -= (d-lastPinch)*1.0; targetDist = Math.max(60,Math.min(600,targetDist)); }
     lastPinch = d;
+    // 두 손가락으로 같이 움직이면(꼬집기와 별개로) 시야를 팬 — 손가락 이동 중심점 기준
+    const c = pinchCenter(e.touches);
+    if(lastPinchCenter) panCamera(c.x-lastPinchCenter.x, c.y-lastPinchCenter.y);
+    lastPinchCenter = c;
   }
 }, {passive:true});
-renderer.domElement.addEventListener('touchend', ()=>{ onPointerUp(); lastPinch=null; });
+renderer.domElement.addEventListener('touchend', ()=>{ onPointerUp(); lastPinch=null; lastPinchCenter=null; });
 renderer.domElement.addEventListener('wheel', e=>{
   e.preventDefault();
   targetDist += e.deltaY*0.16;
@@ -1710,6 +1797,10 @@ renderer.domElement.addEventListener('drop', async e=>{
 function handlePick(clientX, clientY){
   if(dragMoved) return;
   const hitId = raycastNode(clientX, clientY);
+  if(recatMode){
+    if(hitId) toggleRecatNode(hitId);
+    return;
+  }
   if(linkSourceId){
     if(hitId && hitId!==linkSourceId) createLink(linkSourceId, hitId);
     exitLinkMode();
@@ -1744,6 +1835,80 @@ function exitLinkMode(){
   if(selectedId) infoPanel.classList.add('show');
 }
 document.getElementById('linkModeCancel').addEventListener('click', exitLinkMode);
+
+// ---------- 카테고리 변경(하위 노드 함께 선택해서 일괄 변경) ----------
+// 카테고리별 노드를 관리하다 특정 가지(예: "내진기준"과 그 밑에 달린 것들)만 다른 카테고리로
+// 옮기고 싶을 때가 있는데, 링크 그래프에 상위/하위 방향성이 저장돼있지 않아서(그냥 노드-노드
+// 연결일 뿐) 자동으로 "이 아래 전부"를 판단할 수 없음 — 대신 시작 노드에서부터 옮길 노드를
+// 직접 탭해서 골라 담는(링크모드와 같은 패턴) 방식으로 구현. 시작 노드는 항상 포함됨.
+let recatMode = null; // { newCategory, included:Set<id>, originId }
+let recatPendingId = null;
+function openRecatModal(id){
+  if(!id) return;
+  recatPendingId = id;
+  const box = document.getElementById('recat-chips');
+  box.innerHTML = '';
+  Object.keys(categories).forEach(cat=>{
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'recat-chip';
+    chip.style.borderColor = hex(categories[cat]);
+    chip.textContent = cat;
+    chip.addEventListener('click', ()=>{ document.getElementById('recat-category').value = cat; });
+    box.appendChild(chip);
+  });
+  document.getElementById('recat-category').value = '';
+  document.getElementById('recat-overlay').style.display = 'flex';
+  setTimeout(()=>document.getElementById('recat-category').focus(), 50);
+}
+document.getElementById('ip-recat').addEventListener('click', ()=>openRecatModal(selectedId));
+document.getElementById('recat-modal-cancel').addEventListener('click', ()=>{ document.getElementById('recat-overlay').style.display='none'; });
+document.getElementById('recat-overlay').addEventListener('click', e=>{ if(e.target.id==='recat-overlay') document.getElementById('recat-overlay').style.display='none'; });
+document.getElementById('recat-modal-confirm').addEventListener('click', ()=>{
+  const cat = document.getElementById('recat-category').value.trim();
+  if(!cat) return;
+  document.getElementById('recat-overlay').style.display = 'none';
+  recatMode = { newCategory:cat, included:new Set([recatPendingId]), originId:recatPendingId };
+  infoPanel.classList.remove('show');
+  document.getElementById('recatBanner').style.display = 'flex';
+  updateRecatBanner();
+  updateRecatHighlight();
+});
+function updateRecatBanner(){
+  document.getElementById('recatBannerText').textContent =
+    '"' + recatMode.newCategory + '"(으)로 바꿀 노드를 탭해서 추가/제외 (' + recatMode.included.size + '개 선택됨)';
+}
+function updateRecatHighlight(){
+  nodes.forEach(n=>{
+    const inc = recatMode.included.has(n.id);
+    n.mesh.material.emissiveIntensity = inc ? 1.3 : 0.18;
+    n.mesh.material.opacity = inc ? 1 : 0.3;
+    n.mesh.scale.setScalar(inc ? 1.5 : 1);
+    n.label3d.material.opacity = inc ? 1 : 0.25;
+  });
+}
+function toggleRecatNode(id){
+  if(id===recatMode.originId) return; // 시작 노드는 항상 포함, 뺄 수 없음
+  if(recatMode.included.has(id)) recatMode.included.delete(id);
+  else recatMode.included.add(id);
+  updateRecatBanner();
+  updateRecatHighlight();
+}
+function exitRecatMode(){
+  recatMode = null;
+  document.getElementById('recatBanner').style.display = 'none';
+  if(selectedId){ infoPanel.classList.add('show'); selectNode(selectedId, true); }
+}
+function applyRecat(){
+  const { newCategory, included } = recatMode;
+  colorFor(newCategory);
+  nodes.forEach(n=>{ if(included.has(n.id)) n.category = newCategory; });
+  exitRecatMode();
+  saveData();
+  rebuildScene();
+}
+document.getElementById('recatDone').addEventListener('click', applyRecat);
+document.getElementById('recatCancelBtn').addEventListener('click', exitRecatMode);
 
 // ---------- 정보 패널 ----------
 const infoPanel = document.getElementById('info-panel');
@@ -2811,7 +2976,30 @@ document.getElementById('m-save').addEventListener('click', ()=>{
   if(!label){ mLabel.focus(); return; }
   const category = mCategory.value.trim() || '미분류';
   const useParent = modalParentId && !mNoParent.checked;
-  const parent = useParent ? nodes.find(n=>n.id===modalParentId) : null;
+  let parent = useParent ? nodes.find(n=>n.id===modalParentId) : null;
+
+  // 새 카테고리를 처음 쓰는 순간, 그 카테고리를 대표하는 "메인" 허브 노드를 자동으로 만들어서
+  // 새 노드를 그 밑에 붙임 — 지금까지는 카테고리명과 같은 라벨의 노드를 직접 만들어 허브로
+  // 써왔는데(예: "설계기준") 그 수작업을 자동화한 것. 카테고리명과 라벨을 똑같이 입력했다면
+  // 이 노드 자체를 허브로 쓰려는 의도로 보고 건너뜀(중복 허브 방지). 기존 카테고리에는
+  // 영향 없음 — 처음 등장하는 카테고리에만 적용됨.
+  const isNewCategory = !categories[category];
+  if(isNewCategory && label !== category){
+    const hubId = 'n_' + Date.now() + '_' + Math.floor(Math.random()*1000) + '_hub';
+    const hub = {
+      id: hubId, label: category, category,
+      level: parent ? Math.min(parent.level+1, 2) : 0,
+      content: '', files: [], fixed:false,
+      x: (parent?parent.x:0) + (Math.random()-0.5)*20,
+      y: (parent?parent.y:0) + (Math.random()-0.5)*20,
+      z: (parent?parent.z:0) + (Math.random()-0.5)*20,
+      vx:0, vy:0, vz:0,
+    };
+    colorFor(category);
+    nodes.push(hub);
+    if(parent) links.push({source:parent, target:hub});
+    parent = hub;
+  }
 
   const id = 'n_' + Date.now() + '_' + Math.floor(Math.random()*1000);
   const baseX = parent ? parent.x : 0, baseY = parent ? parent.y : 0, baseZ = parent ? parent.z : 0;
