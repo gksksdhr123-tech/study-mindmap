@@ -2916,7 +2916,12 @@ function readFile(file){
 // ---------- 카테고리 datalist / 범례 / 뷰포인트 칩 ----------
 function refreshCategoryList(){
   const dl = document.getElementById('cat-list');
-  dl.innerHTML = Object.keys(categories).map(c=>`<option value="${c}">`).join('');
+  dl.textContent = '';
+  Object.keys(categories).forEach(c=>{
+    const opt = document.createElement('option');
+    opt.value = c;
+    dl.appendChild(opt);
+  });
 }
 function refreshLegend(){
   const legendEl = document.getElementById('legend');
@@ -3014,7 +3019,11 @@ function updateCategorySuggestion(){
   const el = document.getElementById('m-category-suggest');
   const suggestion = suggestCategory(mLabel.value + ' ' + mContent.value);
   if(suggestion && suggestion.category !== mCategory.value.trim()){
-    el.innerHTML = '💡 추천: <b>'+suggestion.category+'</b> ('+suggestion.matches.slice(0,3).join(', ')+')';
+    el.textContent = '';
+    el.append('💡 추천: ');
+    const b = document.createElement('b');
+    b.textContent = suggestion.category;
+    el.append(b, ' (' + suggestion.matches.slice(0,3).join(', ') + ')');
     el.style.display = 'block';
     el.onclick = ()=>{ mCategory.value = suggestion.category; el.style.display = 'none'; };
   } else {
