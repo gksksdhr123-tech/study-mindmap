@@ -1010,7 +1010,7 @@ async function performRedo(){
 document.getElementById('undoBtn').addEventListener('click', performUndo);
 document.getElementById('redoBtn').addEventListener('click', performRedo);
 
-async function saveData(){
+async function saveData(trackUndo=true){
   if(!activeUniverseId) return;
   const data = {
     id: activeUniverseId,
@@ -1023,7 +1023,10 @@ async function saveData(){
     problems,
     flashcards,
   };
-  if(lastSavedSnapshot && lastSavedSnapshot.id===activeUniverseId){
+  // trackUndo=false: 복습(플래시카드 정답/오답) 같이 아주 자주 일어나지만 되돌릴 필요는
+  // 거의 없는 저장까지 실행취소 스택에 쌓이면, 진짜 되돌리고 싶은 구조 편집이 UNDO_LIMIT에
+  // 밀려 사라져버릴 수 있어서 이 경우만 스택 기록을 건너뜀(저장 자체는 정상적으로 함).
+  if(trackUndo && lastSavedSnapshot && lastSavedSnapshot.id===activeUniverseId){
     undoStack.push(lastSavedSnapshot);
     if(undoStack.length>UNDO_LIMIT) undoStack.shift();
     redoStack = [];
@@ -2455,7 +2458,7 @@ function advanceReview(known){
   const c = reviewQueue[reviewIndex];
   c.knownStreak = known ? (c.knownStreak||0)+1 : 0;
   c.lastReviewed = Date.now();
-  saveData();
+  saveData(false); // 복습 세션 하나가 수십 번 저장을 만들어서 undo 스택을 도배하지 않도록
   reviewIndex++;
   renderReviewCard();
 }
@@ -2625,6 +2628,7 @@ document.getElementById('ip-unpin').addEventListener('click', ()=>{
     const file = e.target.files[0];
     if(!file) return;
     errorMsg.style.display = 'none';
+    if(video.src) URL.revokeObjectURL(video.src); // 이전에 고른 영상의 blob URL을 안 지우면 세션 내내 메모리에 남음
     video.src = URL.createObjectURL(file);
     video.style.display = 'block';
     tapLayer.style.display = 'block';
@@ -2877,7 +2881,17 @@ function refreshLegend(){
     dot.value = hex(categories[cat]);
     dot.title = cat + ' 색상 변경';
     dot.addEventListener('input', e=>{
-      categories[cat] = parseInt(e.target.value.slice(1), 16);
+      // 색상 피커를 드래그하는 동안 'input'이 프레임마다 발생함 — 매번 saveData+
+      // rebuildScene(전체 노드 지오메트리/머티리얼 재생성)까지 하면 드래그가 버벅이고
+      // undo 스택도 미세 색상변화로 도배됨. 드래그 중엔 이 카테고리 노드 구체 색만
+      // 가볍게 즉시 반영하고, 저장/라벨 재생성은 색을 확정하는 'change'에서만 함.
+      const c = parseInt(e.target.value.slice(1), 16);
+      categories[cat] = c;
+      nodes.forEach(n=>{
+        if(n.category===cat){ n.mesh.material.color.setHex(c); n.mesh.material.emissive.setHex(c); }
+      });
+    });
+    dot.addEventListener('change', ()=>{
       saveData();
       rebuildScene();
     });
