@@ -988,6 +988,7 @@ async function performUndo(){
   lastSavedSnapshot = prev;
   applyLoadedData(prev);
   selectedId = null;
+  infoPanel.classList.remove('show'); // rebuildScene은 selectedId가 null이면 패널을 안 건드리므로 직접 닫아줌
   await idbPutUniverse(prev);
   if(syncEnabled()) pushUniverseToCloud(prev);
   rebuildScene();
@@ -1000,6 +1001,7 @@ async function performRedo(){
   lastSavedSnapshot = next;
   applyLoadedData(next);
   selectedId = null;
+  infoPanel.classList.remove('show');
   await idbPutUniverse(next);
   if(syncEnabled()) pushUniverseToCloud(next);
   rebuildScene();
@@ -1063,6 +1065,7 @@ async function switchUniverse(id){
   undoStack = []; redoStack = []; lastSavedSnapshot = JSON.parse(JSON.stringify(record)); updateUndoRedoBtns();
   selectedId = null;
   exitLinkMode();
+  if(recatMode) exitRecatMode(); // 다른 유니버스로 옮기면 카테고리 변경 선택 모드도 같이 종료(남아있던 선택 대상은 무의미해짐)
   draggingNodeId = null;
   autoRotate = true;
   camTarget = {x:0,y:0,z:0};
