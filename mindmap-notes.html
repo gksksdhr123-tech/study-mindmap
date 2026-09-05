@@ -1754,16 +1754,23 @@ window.addEventListener('mouseup', onPointerUp);
 renderer.domElement.addEventListener('contextmenu', e=>e.preventDefault()); // 우클릭 = 팬이라 브라우저 기본 메뉴는 막음
 
 let lastPinch=null, lastPinchCenter=null;
+let touchMultiFinger=false;
 function pinchDist(t){ return Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY); }
 function pinchCenter(t){ return { x:(t[0].clientX+t[1].clientX)/2, y:(t[0].clientY+t[1].clientY)/2 }; }
 renderer.domElement.addEventListener('touchstart', e=>{
-  if(e.touches.length===1) onPointerDown(e.touches[0].clientX, e.touches[0].clientY);
+  if(e.touches.length===1){
+    touchMultiFinger = false;
+    onPointerDown(e.touches[0].clientX, e.touches[0].clientY);
+  } else {
+    touchMultiFinger = true;
+  }
   lastPinch = e.touches.length===2 ? pinchDist(e.touches) : null;
   lastPinchCenter = e.touches.length===2 ? pinchCenter(e.touches) : null;
 }, {passive:true});
 renderer.domElement.addEventListener('touchmove', e=>{
-  if(e.touches.length===1) onPointerMove(e.touches[0].clientX, e.touches[0].clientY);
+  if(e.touches.length===1 && !touchMultiFinger) onPointerMove(e.touches[0].clientX, e.touches[0].clientY);
   else if(e.touches.length===2){
+    touchMultiFinger = true;
     const d = pinchDist(e.touches);
     if(lastPinch){ targetDist -= (d-lastPinch)*1.0; targetDist = Math.max(60,Math.min(600,targetDist)); }
     lastPinch = d;
@@ -1773,7 +1780,23 @@ renderer.domElement.addEventListener('touchmove', e=>{
     lastPinchCenter = c;
   }
 }, {passive:true});
-renderer.domElement.addEventListener('touchend', ()=>{ onPointerUp(); lastPinch=null; lastPinchCenter=null; });
+// 탭(선택)은 브라우저가 터치 뒤에 합성해주는 'click' 이벤트에 기대지 않고 여기서 직접 처리한다.
+// 갤럭시 탭에서 S펜으로 찍으면, 펜 특유의 미세한 좌표 흔들림 때문에 브라우저가 이 터치를
+// "스크롤/드래그"로 오판해 합성 클릭을 아예 안 쏴주는 경우가 있어(그래서 두 번 찍어야 겨우 선택됨),
+// 우리 쪽에서 이미 계산해 둔 dragMoved(실제 이동 여부)로 직접 탭 여부를 판단해 선택한다.
+renderer.domElement.addEventListener('touchend', e=>{
+  const wasTap = !touchMultiFinger && !dragMoved;
+  const t = e.changedTouches[0];
+  onPointerUp();
+  if(e.touches.length===0){
+    if(wasTap && t){
+      e.preventDefault(); // 합성 mousedown/mouseup/click을 억제해 handlePick 중복 호출을 막음
+      handlePick(t.clientX, t.clientY);
+    }
+    touchMultiFinger = false;
+  }
+  lastPinch=null; lastPinchCenter=null;
+});
 renderer.domElement.addEventListener('wheel', e=>{
   e.preventDefault();
   targetDist += e.deltaY*0.16;
