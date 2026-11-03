@@ -1215,7 +1215,10 @@ async function importBackup(file){
     if(existingNames.has(name)) name = name + ' (가져옴)';
     existingNames.add(name);
     const now = Date.now();
-    await idbPutUniverse({ ...u, id: genUniverseId(), name, createdAt: now, updatedAt: now });
+    const rec = { ...u, id: genUniverseId(), name, createdAt: now, updatedAt: now };
+    await idbPutUniverse(rec);
+    // 로그인 상태면 바로 클라우드에도 올림 — 안 그러면 가져온 기기에서만 보이고 편집하기 전까지 다른 기기엔 안 넘어감
+    if(syncEnabled()) pushUniverseToCloud(rec);
     count++;
   }
   alert(count + '개의 유니버스를 새로 가져왔어요. 목록에서 확인해보세요.');
